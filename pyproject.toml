@@ -20,9 +20,18 @@ dependencies = [
     "typer>=0.15.1",
     "rich>=13.9.4",
     "pyyaml>=6.0.2",
+    # Real BM25, for the experiment row that settles whether it beats ts_rank_cd here.
+    # Tiny and pure-Python; it indexes in memory per query, which is fine for a
+    # benchmark corpus and is why it is a comparison arm and not a shipping mode.
+    "rank-bm25>=0.2.2",
 ]
 
 [project.optional-dependencies]
+# Kept out of the base install on purpose: sentence-transformers pulls in torch, which
+# would weigh down the week-6 image for a component that has not yet earned its place.
+rerank = [
+    "sentence-transformers>=3.3.1",
+]
 dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.24.0",

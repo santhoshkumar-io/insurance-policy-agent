@@ -175,7 +175,7 @@ def _window_fallback(doc: ExtractedDocument) -> list[ChunkDraft]:
             )
 
     for page in doc.pages:
-        for line in _group_lines(page.spans):
+        for line in _outside_tables(page, _group_lines(page.spans)):
             buffer.append(line.text)
             buffer_pages.append(line.page)
             if count_tokens(" ".join(buffer)) >= TARGET_TOKENS:
@@ -193,14 +193,37 @@ def _window_fallback(doc: ExtractedDocument) -> list[ChunkDraft]:
     return drafts
 
 
+def _outside_tables(page, lines: list[_Line]) -> list[_Line]:
+    """Drop lines that fall inside a detected table.
+
+    Their content is already carried by the table chunk, as a markdown grid with the
+    row and column relationships intact. Leaving them in the prose stream indexes every
+    cell twice and lets a bold header row ("Benefit | Limit | Waiting period") pass for
+    a section heading on font metrics alone.
+    """
+    if not page.tables:
+        return lines
+    return [
+        ln for ln in lines
+        if not any(table.contains(ln.x0, ln.y0) for table in page.tables)
+    ]
+
+
 def chunk_document(doc: ExtractedDocument) -> list[ChunkDraft]:
     body_size = doc.body_font_size
-    all_lines = [ln for page in doc.pages for ln in _group_lines(page.spans)]
+    all_lines = [
+        ln for page in doc.pages for ln in _outside_tables(page, _group_lines(page.spans))
+    ]
 
     headings = sum(1 for ln in all_lines if _heading_level(ln, body_size) is not None)
     structured = headings >= MIN_HEADINGS_FOR_STRUCTURED
 
     drafts: list[ChunkDraft] = []
+
+    # (page, y, section_path) for every heading, in document order. A table is emitted
+    # in a separate pass, so this is how it recovers the section it sits under -- a
+    # citation reading "6. Table of Benefits" tells the agent far more than a blank one.
+    heading_marks: list[tuple[int, float, str]] = []
 
     if structured:
         section = _Section()
@@ -233,6 +256,7 @@ def chunk_document(doc: ExtractedDocument) -> list[ChunkDraft]:
                 flush()
                 _push_section(section, level, line.text.strip())
                 buffer_section = section.as_str()
+                heading_marks.append((line.page, line.y0, buffer_section))
                 continue
             if not buffer:
                 buffer_section = section.as_str()
@@ -252,7 +276,7 @@ def chunk_document(doc: ExtractedDocument) -> list[ChunkDraft]:
                     text=table.markdown,
                     page_from=table.page,
                     page_to=table.page,
-                    section_path="",
+                    section_path=_section_for(heading_marks, table.page, table.bbox[1]),
                     chunk_type="table",
                     token_count=count_tokens(table.markdown),
                 )
@@ -289,3 +313,16 @@ def _merge_runts(drafts: list[ChunkDraft]) -> list[ChunkDraft]:
             continue
         merged.append(draft)
     return merged
+
+
+def _section_for(
+    marks: list[tuple[int, float, str]], page: int, y: float
+) -> str:
+    """The section path in force at a position: the last heading at or before it."""
+    current = ""
+    for mark_page, mark_y, path in marks:
+        if (mark_page, mark_y) <= (page, y):
+            current = path
+        else:
+            break
+    return current

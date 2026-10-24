@@ -320,20 +320,29 @@ tests, ~10 seed eval questions.
 cited page numbers are correct when the PDF is opened by hand; one out-of-scope question returns an
 explicit abstention; the tenant-isolation test passes.
 
-### Week 2 — Interface and ingestion hardening
-Next.js dashboard: upload, policy library, chat with a citation side-panel that shows the retrieved
-text. OCR fallback for scanned pages. Header/footer stripping. Re-index command.
+### Week 2 — Retrieval engineering *(reordered — see note below)*
+Keyword arm (`ts_rank_cd`) + RRF hybrid + a real BM25 comparison row. Cross-encoder reranking behind
+an optional install extra. Evaluation harness: page-level evidence matching, Recall@k / MRR / nDCG,
+both abstention error rates, latency and cost. Benchmark set grown. Re-index command. Table-region
+chunking fix.
+
+**Exit check:** a table in `docs/experiments.md` comparing vector / keyword / BM25 / hybrid /
++rerank on Recall@k, MRR, nDCG, abstention error rates, latency and cost, over one frozen question
+set, reproducible via `policy experiments`.
+
+> **Reordered from the original plan**, which had the dashboard here and retrieval in week 3. The
+> evaluation set is the schedule bottleneck and compounds the earlier it starts; every retrieval
+> change validates through the CLI in seconds; and a dashboard built before retrieval settles needs
+> rework to display rerank scores and retrieval provenance. The experiment table is also this
+> project's actual differentiator — a polished UI over unmeasured retrieval is precisely what the
+> brief's stack principle warns against.
+
+### Week 3 — Interface
+Next.js dashboard: upload, policy library, chat with a citation side-panel showing the retrieved
+text, retrieval provenance and both scores. OCR fallback only if the corpus turns out to need it.
 
 **Exit check:** a person who has never seen the codebase uploads a policy in the browser, asks a
 question, and clicks a citation through to the source text and page.
-
-### Week 3 — Retrieval engineering
-Benchmark set to 50 questions with retrieval labels. Keyword search (`ts_rank_cd`) + RRF hybrid.
-Reranker evaluated and adopted or rejected on measured gain. Results — including the negative ones —
-written to `docs/experiments.md`.
-
-**Exit check:** a table in `docs/experiments.md` comparing vector / keyword / hybrid / +rerank on
-Recall@5, MRR, latency and cost, over one frozen question set.
 
 ### Week 4 — Structured workflows
 Policy comparison: aspect list, per-aspect per-policy retrieval, structured extraction, comparison

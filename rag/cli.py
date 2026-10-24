@@ -1,12 +1,16 @@
 """Command line interface.
 
-The week-1 interface is a CLI, not a browser. A UI cannot tell you whether retrieval is
-working and it slows the inner loop; the Next.js dashboard arrives in week 2 (plan.md §3).
+The CLI is the development interface, not a stopgap: a browser cannot tell you whether
+retrieval is working, and `inspect` and `eval` are how chunking and ranking regressions
+get caught. The dashboard comes after retrieval settles.
 
     policy ingest samples/policy.pdf --product "Health Guard" --insurer "Acme"
-    policy ask "What is the waiting period for pre-existing diseases?"
+    policy ask "What is the waiting period for pre-existing diseases?" --mode hybrid
     policy policies
     policy inspect <document_id> --page 14
+    policy reindex --all
+    policy eval --mode hybrid
+    policy experiments
 """
 
 from __future__ import annotations
@@ -24,10 +28,10 @@ from sqlalchemy import func, select
 from db.models import Chunk, Document, DocumentStatus, Policy
 from db.session import get_or_create_dev_tenant, scoped, session_scope
 from rag.config import get_settings
-from rag.embeddings.openai_embeddings import embed_query
 from rag.generation.answer import generate_answer
 from rag.ingestion.pipeline import ingest_document
-from rag.retrieval.vector import retrieve
+from rag.retrieval.search import search
+from rag.retrieval.types import RetrievalMode
 
 app = typer.Typer(add_completion=False, help="Insurance Policy Intelligence AI")
 console = Console()
@@ -126,18 +130,21 @@ def ask(
     question: str = typer.Argument(...),
     policy: list[uuid.UUID] = typer.Option(None, "--policy", help="Restrict to policy id(s)"),
     top_k: int = typer.Option(None, "--top-k"),
+    mode: RetrievalMode = typer.Option(None, "--mode", help="Retrieval strategy"),
+    rerank: bool = typer.Option(None, "--rerank/--no-rerank", help="Cross-encoder rerank"),
     show_sources: bool = typer.Option(False, "--sources", help="Print the retrieved text"),
 ) -> None:
     """Ask a question and print the answer with its validated citations."""
     with session_scope() as session:
         tenant = get_or_create_dev_tenant(session)
-        vector = embed_query(question)
-        chunks = retrieve(
+        chunks = search(
             session,
-            tenant_id=tenant.id,
-            query_vector=vector,
+            tenant.id,
+            question,
             policy_ids=list(policy) if policy else None,
             top_k=top_k,
+            mode=mode,
+            rerank=rerank,
         )
         answer = generate_answer(question, chunks)
 
@@ -154,26 +161,28 @@ def ask(
         table.add_column("ref")
         table.add_column("page")
         table.add_column("type")
+        table.add_column("found by")
         table.add_column("section", overflow="fold")
-        table.add_column("score", justify="right")
+        table.add_column("rank score", justify="right")
+        table.add_column("cosine", justify="right")
         for chunk in answer.citations:
-            pages = (
-                str(chunk.page_from)
-                if chunk.page_from == chunk.page_to
-                else f"{chunk.page_from}-{chunk.page_to}"
-            )
             table.add_row(
                 chunk.short_id,
-                pages,
+                chunk.pages_label,
                 chunk.chunk_type,
+                str(chunk.retrieved_by),
                 chunk.section_path or "-",
-                f"{chunk.score:.3f}",
+                f"{chunk.score:.4f}",
+                f"{chunk.confidence:.3f}",
             )
         console.print(table)
 
     if show_sources:
         for chunk in chunks:
-            console.rule(f"[dim]{chunk.short_id} p{chunk.page_from} {chunk.section_path}")
+            console.rule(
+                f"[dim]{chunk.short_id} p{chunk.pages_label} "
+                f"({chunk.retrieved_by}, rank {chunk.rank}) {chunk.section_path}"
+            )
             console.print(chunk.text[:1200])
 
     console.print(
@@ -247,6 +256,196 @@ def inspect(
                 f"{chunk.chunk_type} | {chunk.section_path or '(no section)'}"
             )
             console.print(chunk.text[:1500])
+
+
+@app.command()
+def reindex(
+    document_id: uuid.UUID = typer.Argument(None),
+    all_documents: bool = typer.Option(False, "--all", help="Re-index every document"),
+) -> None:
+    """Re-chunk and re-embed from the stored PDF.
+
+    Needed whenever chunking or the embedding model changes. Without it, improving the
+    chunker means deleting and re-uploading every document, which is how a corpus ends
+    up half-indexed by an old strategy.
+    """
+    if not all_documents and document_id is None:
+        console.print("[red]Pass a document id or --all[/red]")
+        raise typer.Exit(1)
+
+    with session_scope() as session:
+        tenant = get_or_create_dev_tenant(session)
+        stmt = scoped(select(Document.id), Document, tenant.id)
+        if not all_documents:
+            stmt = stmt.where(Document.id == document_id)
+        ids = list(session.scalars(stmt))
+        tenant_id = tenant.id
+
+    if not ids:
+        console.print("[yellow]Nothing to re-index.[/yellow]")
+        return
+
+    failed = 0
+    for one in ids:
+        try:
+            with console.status(f"Re-indexing {one}..."):
+                with session_scope() as session:
+                    count = ingest_document(session, one, tenant_id)
+            console.print(f"[green]ok[/green] {one} -> {count} chunks")
+        except Exception as exc:
+            failed += 1
+            console.print(f"[red]failed[/red] {one}: {exc}")
+
+    console.print(f"Re-indexed {len(ids) - failed}/{len(ids)} document(s).")
+
+
+@app.command()
+def eval(
+    mode: RetrievalMode = typer.Option(None, "--mode", help="Retrieval strategy"),
+    rerank: bool = typer.Option(False, "--rerank", help="Apply the cross-encoder"),
+    k: int = typer.Option(5, "--k", help="Cut-off for Recall@k and nDCG@k"),
+    generate: bool = typer.Option(
+        False, "--generate", help="Also call the model, for abstention and token metrics"
+    ),
+) -> None:
+    """Score one retrieval configuration against the frozen question set."""
+    from rag.evaluation.dataset import load_eval_set
+    from rag.evaluation.runner import Configuration, run_configuration, save_run
+
+    settings = get_settings()
+    config = Configuration(
+        name=str(mode or settings.retrieval_mode) + (" + rerank" if rerank else ""),
+        mode=RetrievalMode(mode or settings.retrieval_mode),
+        rerank=rerank,
+    )
+    eval_set = load_eval_set()
+
+    with console.status(f"Running {config.name} over {len(eval_set.questions)} questions..."):
+        with session_scope() as session:
+            tenant = get_or_create_dev_tenant(session)
+            metrics = run_configuration(
+                session, tenant.id, config, k=k, eval_set=eval_set, generate=generate
+            )
+
+    _print_runs([metrics], k)
+    path = save_run(metrics, config)
+    console.print(f"[dim]per-question output: {path}[/dim]")
+
+    unmatched = [r for r in metrics.per_question if r.notes]
+    if unmatched:
+        console.print(
+            f"[yellow]{len(unmatched)} question(s) reference a policy that is not "
+            f"ingested; they scored zero. Ingest it or fix the `policy:` label.[/yellow]"
+        )
+        for result in unmatched[:5]:
+            console.print(f"  [dim]{result.question_id}: {result.notes}[/dim]")
+
+
+@app.command()
+def experiments(
+    k: int = typer.Option(5, "--k"),
+    rerank: bool = typer.Option(
+        False, "--rerank", help="Add a reranked row (needs the [rerank] extra)"
+    ),
+    generate: bool = typer.Option(
+        False, "--generate", help="Also measure abstention and token cost"
+    ),
+) -> None:
+    """Run the whole matrix and write docs/experiments.md."""
+    from rag.evaluation import report
+    from rag.evaluation.dataset import load_eval_set
+    from rag.evaluation.runner import (
+        Configuration,
+        default_matrix,
+        run_configuration,
+        save_run,
+    )
+    from rag.retrieval.types import RetrievalMode as Mode
+
+    matrix = default_matrix()
+    if rerank:
+        matrix.append(
+            Configuration("hybrid + cross-encoder", Mode.HYBRID, rerank=True)
+        )
+
+    eval_set = load_eval_set()
+    # One embedding per question, shared across every configuration in the matrix.
+    vector_cache: dict = {}
+    runs = []
+
+    with session_scope() as session:
+        tenant = get_or_create_dev_tenant(session)
+        for config in matrix:
+            with console.status(f"{config.name}..."):
+                metrics = run_configuration(
+                    session,
+                    tenant.id,
+                    config,
+                    k=k,
+                    eval_set=eval_set,
+                    generate=generate,
+                    vector_cache=vector_cache,
+                )
+            runs.append(metrics)
+            save_run(metrics, config)
+            console.print(
+                f"  [green]done[/green] {config.name}: "
+                f"recall@{k}={metrics.recall_at_k:.3f} mrr={metrics.mrr:.3f}"
+            )
+
+    _print_runs(runs, k)
+    path = report.write(runs, eval_set, k)
+    console.print(f"[green]Wrote[/green] {path}")
+
+
+def _print_runs(runs: list, k: int) -> None:
+    from rag.evaluation.report import COLUMNS
+
+    table = RichTable(title=f"Retrieval experiments (k={k})")
+    for _, label in COLUMNS:
+        table.add_column(label, overflow="fold")
+    for run in runs:
+        row = run.as_row()
+        table.add_row(*(str(row[key]) for key, _ in COLUMNS))
+    console.print(table)
+
+
+@app.command("eval-draft")
+def eval_draft(
+    policy_id: uuid.UUID = typer.Argument(...),
+    out: Path = typer.Option(None, "--out", help="Write the YAML stub here"),
+    limit: int = typer.Option(None, "--limit", help="Only the first N chunks"),
+) -> None:
+    """Propose candidate benchmark questions from an ingested policy.
+
+    Candidates only. Nothing here is a label until a human has read it against the
+    document -- a benchmark that labels itself measures the model's agreement with
+    itself, and every number built on it is worthless.
+    """
+    from rag.evaluation.drafting import draft_for_policy, to_yaml_stub
+
+    with session_scope() as session:
+        tenant = get_or_create_dev_tenant(session)
+        policy = session.get(Policy, policy_id)
+        if policy is None or policy.tenant_id != tenant.id:
+            console.print("[red]No such policy in this tenant.[/red]")
+            raise typer.Exit(1)
+        label = policy.product_name.lower().replace(" ", "-")
+        with console.status("Drafting candidates..."):
+            candidates = draft_for_policy(
+                session, tenant.id, policy_id, limit=limit
+            )
+
+    stub = to_yaml_stub(candidates, label)
+    if out:
+        out.write_text(stub)
+        console.print(f"[green]Wrote[/green] {len(candidates)} candidates to {out}")
+    else:
+        console.print(stub)
+    console.print(
+        "[yellow]Verify every candidate against the source before using any of "
+        "them as a label.[/yellow]"
+    )
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from rag.generation.prompt import (
     SYSTEM_PROMPT,
     build_user_message,
 )
-from rag.retrieval.vector import RetrievedChunk
+from rag.retrieval.types import RetrievedChunk
 from rag.validation.citations import Claim, validate_claims
 
 ABSTAIN_TEXT = (
@@ -120,11 +120,15 @@ def generate_answer(
     if not chunks:
         return _abstain("No chunks retrieved for this query and policy scope.", model_name, started)
 
-    best = max(c.score for c in chunks)
-    if best < settings.abstain_score_threshold:
+    # RetrievedChunk.confidence is a cosine similarity whatever ranked the list, so this
+    # threshold means the same thing under vector, hybrid and reranked retrieval. Reading
+    # `score` here instead would compare 0.25 against an RRF sum of ~0.016 and abstain on
+    # every question (docs/decisions.md, the score-scale trap).
+    best = max(c.confidence for c in chunks)
+    if best < settings.abstain_semantic_threshold:
         return _abstain(
-            f"Best retrieval score {best:.3f} is below the threshold "
-            f"{settings.abstain_score_threshold:.3f}.",
+            f"Best evidence similarity {best:.3f} is below the threshold "
+            f"{settings.abstain_semantic_threshold:.3f}.",
             model_name,
             started,
         )

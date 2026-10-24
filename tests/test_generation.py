@@ -45,8 +45,8 @@ def test_abstains_when_nothing_is_retrieved():
 
 
 def test_abstains_when_best_score_is_below_threshold():
-    threshold = get_settings().abstain_score_threshold
-    chunk = make_chunk(score=threshold - 0.05)
+    threshold = get_settings().abstain_semantic_threshold
+    chunk = make_chunk(score=threshold - 0.05, semantic_score=threshold - 0.05)
     answer = generate_answer("anything?", [chunk], model=StubModel([answerable(chunk)]))
     assert not answer.answerable
     assert "below the threshold" in answer.abstained_reason

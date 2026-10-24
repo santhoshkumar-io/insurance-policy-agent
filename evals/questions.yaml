@@ -1,32 +1,41 @@
 # Evaluation set.
 #
 # Labels are split by cost (plan.md §2.2). `expected_pages` and `answerable` are cheap
-# and already unlock Recall@k, MRR and abstention metrics -- which is everything the
-# week-3 retrieval experiments need. `gold_answer` is expensive hand-verification and
-# lags behind; null means "not labelled yet", not "no answer".
+# and already unlock Recall@k, MRR, nDCG and the abstention metrics -- which is everything
+# the retrieval experiments need. `gold_answer` is expensive hand-verification and lags
+# behind; null means "not labelled yet", not "no answer".
+#
+# Evidence is labelled by PAGE, not by chunk id, on purpose: the chunker changes, and
+# chunk-id labels would be invalidated by every chunking improvement, turning the
+# benchmark into a measure of whether chunk boundaries moved.
 #
 # Rules:
-#   - Every entry is verified against the source PDF by a human. LLM-generated
+#   - Every entry is verified against the source document by a human. LLM-generated
 #     candidates are a starting point, never a label.
 #   - The set is frozen before an experiment runs. A metric that moved because the
 #     questions changed is not a result.
 #   - Keep unanswerable questions at roughly 20% of the set. Without them, abstention
 #     cannot be measured and the threshold cannot be calibrated.
 #
-# Target: 50 questions by end of week 3.
+# SCOPE NOTE: every question below is against the synthetic Acme Health Guard fixture
+# (scripts/sample_policy.py), whose exact wording and page layout are known. That makes
+# these labels trustworthy but the corpus unrepresentative -- real wordings are longer,
+# messier and worse-structured. The set reaches the planned 50 questions when real
+# insurer PDFs land in samples/; until then these numbers describe an easy corpus and
+# the experiments table says so.
 
-version: 1
-set_name: seed-week1
+version: 2
+set_name: acme-synthetic-v2
 
 questions:
+  # ---------------------------------------------------------------- waiting periods
   - id: q001
     question: "What is the waiting period for pre-existing diseases?"
     policy: acme-health-guard
     answerable: true
     expected_pages: [2]
     expected_section: "4. Waiting Periods > 4.3 Pre-existing disease waiting period"
-    gold_answer: null
-    notes: "The headline question. Thirty-six months of continuous coverage."
+    gold_answer: "Thirty six months of continuous coverage from the inception of the first policy with the insurer."
 
   - id: q002
     question: "Is there a waiting period in the first month of the policy?"
@@ -34,8 +43,8 @@ questions:
     answerable: true
     expected_pages: [2]
     expected_section: "4. Waiting Periods > 4.1 Initial waiting period"
-    gold_answer: null
-    notes: "Paraphrase test -- the document says 'thirty days', not 'first month'."
+    gold_answer: "Thirty days from first commencement, except claims arising from an accident."
+    notes: "Paraphrase test -- the document says 'thirty days', never 'first month'."
 
   - id: q003
     question: "How long must I wait before a listed surgery is covered?"
@@ -43,8 +52,8 @@ questions:
     answerable: true
     expected_pages: [2]
     expected_section: "4. Waiting Periods > 4.2 Specific waiting period"
-    gold_answer: null
-    notes: "Twenty-four months. Must not be confused with q001's thirty-six."
+    gold_answer: "Twenty four months of continuous coverage."
+    notes: "Adjacent-number trap against q001 (36) and q008 (48)."
 
   - id: q004
     question: "Does this policy cover a surgery after six months?"
@@ -54,33 +63,35 @@ questions:
     expected_section: "4. Waiting Periods"
     gold_answer: null
     notes: >
-      The brief's own example question. The correct behaviour is conditional: it depends
-      on whether the condition is pre-existing, listed, or neither. An answer that says
-      a flat yes or no is wrong even if it cites the right page.
+      The brief's own example question. Correct behaviour is conditional: it depends on
+      whether the condition is pre-existing, listed, or neither. A flat yes or no is
+      wrong even when the cited page is right.
 
   - id: q005
-    question: "Is cosmetic surgery covered?"
+    question: "Are accident claims subject to the initial waiting period?"
     policy: acme-health-guard
     answerable: true
-    expected_pages: [3]
-    expected_section: "5. Exclusions > 5.1 Cosmetic surgery"
-    gold_answer: null
+    expected_pages: [2]
+    expected_section: "4. Waiting Periods > 4.1 Initial waiting period"
+    gold_answer: "No -- claims arising due to an accident are excepted from the thirty-day initial waiting period."
+    notes: "Tests the exception clause, not the headline number."
 
   - id: q006
-    question: "What happens if I take a room above my eligible category?"
+    question: "When does cover for a pre-existing condition and its complications begin?"
     policy: acme-health-guard
     answerable: true
-    expected_pages: [3]
-    expected_section: "5. Exclusions > 5.2 Room rent"
-    gold_answer: null
+    expected_pages: [2]
+    expected_section: "4. Waiting Periods > 4.3 Pre-existing disease waiting period"
+    gold_answer: "After thirty six months of continuous coverage; direct complications are treated the same way."
 
+  # --------------------------------------------------------------------- definitions
   - id: q007
     question: "What counts as a hospital under this policy?"
     policy: acme-health-guard
     answerable: true
     expected_pages: [1]
     expected_section: "1. Definitions"
-    gold_answer: null
+    gold_answer: "An institution for in-patient and day care treatment, registered with the local authorities under applicable law."
 
   - id: q008
     question: "How many months before the policy start date does a pre-existing condition have to be diagnosed?"
@@ -88,12 +99,105 @@ questions:
     answerable: true
     expected_pages: [1]
     expected_section: "1. Definitions > 1.1 Pre-existing Disease"
-    gold_answer: null
+    gold_answer: "Forty eight months prior to the effective date."
     notes: >
-      Forty-eight months. Deliberately adjacent to q001's thirty-six: a system that
-      retrieves 'the waiting period section' for both is failing at precision.
+      Forty-eight months, deliberately adjacent to q001's thirty-six. A system that
+      returns "the waiting periods section" for both is failing at precision, and this
+      is the pair that exposes it.
 
   - id: q009
+    question: "What is the definition of a pre-existing disease?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [1]
+    expected_section: "1. Definitions > 1.1 Pre-existing Disease"
+    gold_answer: "A condition, ailment, injury or disease diagnosed by a physician within forty eight months before the policy's effective date."
+
+  # ---------------------------------------------------------------------- exclusions
+  - id: q010
+    question: "Is cosmetic surgery covered?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [3]
+    expected_section: "5. Exclusions > 5.1 Cosmetic surgery"
+    gold_answer: "Excluded, unless for reconstruction after accident, burn or cancer, or medically necessary to remove a direct and immediate health risk."
+
+  - id: q011
+    question: "Can I claim for reconstructive surgery after a burn?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [3]
+    expected_section: "5. Exclusions > 5.1 Cosmetic surgery"
+    gold_answer: "Yes -- reconstruction following a burn is carved out of the cosmetic surgery exclusion."
+    notes: "The exception inside an exclusion. Easy to answer backwards."
+
+  - id: q012
+    question: "What happens if I take a room above my eligible category?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [3]
+    expected_section: "5. Exclusions > 5.2 Room rent"
+    gold_answer: "The associated medical expenses payable are prorated."
+
+  - id: q013
+    question: "Are my medical expenses prorated in any situation?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [3]
+    expected_section: "5. Exclusions > 5.2 Room rent"
+    gold_answer: "Yes -- when admitted to a room category higher than the eligible category."
+    notes: "Rare exact term ('prorated'); the case the keyword arm exists for."
+
+  # ------------------------------------------------- table of benefits (page 4 only)
+  - id: q014
+    question: "What is the room rent limit?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [4]
+    expected_section: "6. Table of Benefits"
+    gold_answer: "1% of sum insured per day."
+    notes: "Answer exists ONLY in the benefits table. A flattened table loses it."
+
+  - id: q015
+    question: "What is the daily limit for ICU charges?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [4]
+    expected_section: "6. Table of Benefits"
+    gold_answer: "2% of sum insured per day."
+    notes: "Table-only. Adjacent row to q014 -- tests row-level precision, not page recall."
+
+  - id: q016
+    question: "How much is payable for cataract surgery per eye?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [4]
+    expected_section: "6. Table of Benefits"
+    gold_answer: "INR 40,000 per eye."
+    notes: "Table-only, and the per-eye qualifier is in the cell."
+
+  - id: q017
+    question: "What is the waiting period for maternity benefit?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [4]
+    expected_section: "6. Table of Benefits"
+    gold_answer: "48 months."
+    notes: >
+      Table-only, and a cross-section trap: 48 months also appears on page 1 as the
+      pre-existing diagnosis window. Retrieving page 1 here is wrong.
+
+  - id: q018
+    question: "What is the maternity limit and how long must I wait for it?"
+    policy: acme-health-guard
+    answerable: true
+    expected_pages: [4]
+    expected_section: "6. Table of Benefits"
+    gold_answer: "INR 50,000, after a 48-month waiting period."
+    notes: "Two cells from one row -- the relationship a flattened table destroys."
+
+  # --------------------------------------------------------------- not in the document
+  - id: q019
     question: "What is the premium for a family of four?"
     policy: acme-health-guard
     answerable: false
@@ -102,7 +206,7 @@ questions:
     gold_answer: null
     notes: "Not in the wording. Must abstain, not estimate from market knowledge."
 
-  - id: q010
+  - id: q020
     question: "Is dental treatment covered under this policy?"
     policy: acme-health-guard
     answerable: false
@@ -111,9 +215,9 @@ questions:
     gold_answer: null
     notes: >
       No dental clause in this document. Tempting to answer from general knowledge of
-      health policies -- the correct behaviour is abstention.
+      how health policies usually work; the correct behaviour is abstention.
 
-  - id: q011
+  - id: q021
     question: "Will my claim for a knee replacement be approved?"
     policy: acme-health-guard
     answerable: false
@@ -121,5 +225,25 @@ questions:
     expected_section: null
     gold_answer: null
     notes: >
-      Out of scope by design: the system is not the claims authority. It should explain
-      what the wording says about waiting periods and decline to predict the decision.
+      Out of scope by design -- the system is not the claims authority. It should decline
+      to predict the decision rather than reason its way to one.
+
+  - id: q022
+    question: "What is the grievance redressal procedure and the ombudsman's address?"
+    policy: acme-health-guard
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      A section real wordings always have and this fixture does not. Guards against a
+      model filling in boilerplate it has seen in training data.
+
+  - id: q023
+    question: "Does the policy cover treatment taken outside India?"
+    policy: acme-health-guard
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: "No geography clause here. Abstention, not inference from silence."

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rag.retrieval.vector import RetrievedChunk
+from rag.retrieval.types import RetrievedChunk
 
 
 @dataclass

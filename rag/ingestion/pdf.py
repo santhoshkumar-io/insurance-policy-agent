@@ -41,6 +41,15 @@ class Table:
     markdown: str
     rows: int
     cols: int
+    # The region this table occupies. Chunking uses it to keep the table's own text out
+    # of the prose stream -- otherwise every cell is indexed twice, once as a markdown
+    # grid and once as linearised words, and the table's bold header row is mistaken
+    # for a section heading.
+    bbox: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+
+    def contains(self, x: float, y: float, pad: float = 2.0) -> bool:
+        x0, y0, x1, y1 = self.bbox
+        return (x0 - pad) <= x <= (x1 + pad) and (y0 - pad) <= y <= (y1 + pad)
 
 
 @dataclass
@@ -143,8 +152,18 @@ def _extract_tables(page) -> list[Table]:
             "| " + " | ".join("---" for _ in header) + " |",
         ]
         lines += ["| " + " | ".join(r) + " |" for r in body]
+        try:
+            bbox = tuple(float(v) for v in table.bbox)
+        except Exception:
+            bbox = (0.0, 0.0, 0.0, 0.0)
         tables.append(
-            Table(page=page.number + 1, markdown="\n".join(lines), rows=len(rows), cols=width)
+            Table(
+                page=page.number + 1,
+                markdown="\n".join(lines),
+                rows=len(rows),
+                cols=width,
+                bbox=bbox,
+            )
         )
     return tables
 

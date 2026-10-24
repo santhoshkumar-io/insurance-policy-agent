@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from db.models import Citation, Conversation, Message
-from rag.embeddings.openai_embeddings import embed_query
 from rag.generation.answer import Answer, generate_answer
-from rag.retrieval.vector import RetrievedChunk, retrieve
+from rag.retrieval.search import search
+from rag.retrieval.types import RetrievedChunk
 from services.api.deps import current_tenant_id, get_db
 from services.api.schemas import ChatIn, ChatOut, CitationOut, ClaimOut
 
@@ -29,6 +29,10 @@ def citation_out(chunk: RetrievedChunk) -> CitationOut:
         section_path=chunk.section_path,
         chunk_type=chunk.chunk_type,
         score=round(chunk.score, 4),
+        semantic_score=(
+            round(chunk.semantic_score, 4) if chunk.semantic_score is not None else None
+        ),
+        retrieved_by=str(chunk.retrieved_by),
         text=chunk.text,
     )
 
@@ -75,13 +79,13 @@ def _persist(
 def chat(payload: ChatIn, session: Session = Depends(get_db)) -> ChatOut:
     tenant_id = current_tenant_id(session)
 
-    vector = embed_query(payload.question)
-    retrieved = retrieve(
+    retrieved = search(
         session,
-        tenant_id=tenant_id,
-        query_vector=vector,
+        tenant_id,
+        payload.question,
         policy_ids=payload.policy_ids,
         top_k=payload.top_k,
+        mode=payload.mode,
     )
     answer = generate_answer(payload.question, retrieved)
     message = _persist(session, tenant_id, payload.question, answer, retrieved)

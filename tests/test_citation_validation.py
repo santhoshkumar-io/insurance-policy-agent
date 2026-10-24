@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import uuid
 
-from rag.retrieval.vector import RetrievedChunk
+from rag.retrieval.types import RetrievedChunk
 from rag.validation.citations import Claim, validate_claims
 
 
-def make_chunk(text: str = "clause text", score: float = 0.8) -> RetrievedChunk:
+def make_chunk(
+    text: str = "clause text",
+    score: float = 0.8,
+    semantic_score: float | None = None,
+) -> RetrievedChunk:
     cid = uuid.uuid4()
     return RetrievedChunk(
         chunk_id=cid,
@@ -25,6 +29,7 @@ def make_chunk(text: str = "clause text", score: float = 0.8) -> RetrievedChunk:
         document_name="policy.pdf",
         policy_name="Health Guard",
         score=score,
+        semantic_score=score if semantic_score is None else semantic_score,
     )
 
 

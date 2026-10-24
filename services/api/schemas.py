@@ -39,6 +39,8 @@ class CitationOut(BaseModel):
     section_path: str
     chunk_type: str
     score: float
+    semantic_score: float | None = None
+    retrieved_by: str = "vector"
     text: str
 
 
@@ -51,6 +53,9 @@ class ChatIn(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     policy_ids: list[uuid.UUID] | None = None
     top_k: int | None = Field(default=None, ge=1, le=50)
+    # Omitted means settings.retrieval_mode. Exposed so the retrieval experiments can
+    # drive the real API path rather than a parallel one.
+    mode: str | None = None
 
 
 class ChatOut(BaseModel):

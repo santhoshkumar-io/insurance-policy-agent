@@ -11,7 +11,7 @@ Two rules this module exists to enforce (plan.md §2.8):
 
 from __future__ import annotations
 
-from rag.retrieval.vector import RetrievedChunk
+from rag.retrieval.types import RetrievedChunk
 
 PROMPT_VERSION = "v2"
 
