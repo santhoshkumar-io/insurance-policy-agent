@@ -58,38 +58,63 @@ decisions taken in response — is in [plan.md](plan.md).
 
 ## Quick start
 
+Needs Docker, Python 3.12+ with [uv](https://docs.astral.sh/uv/), and Node 22+ for the
+dashboard. No policy PDF of your own is required — the demo document is generated.
+
 ```bash
 cp .env.example .env            # add your OPENAI_API_KEY
-docker compose up -d            # PostgreSQL 17 + pgvector on port 5433
+make up                         # PostgreSQL 17 + pgvector on port 5433 (database only)
 
 uv venv --python 3.12
 uv pip install -e ".[dev]"
 source .venv/bin/activate
 
-alembic upgrade head
-pytest -q -m "not db"           # unit tests, no database or network needed
-pytest -q                       # everything, including tenant isolation
+make migrate
+make seed                       # generates and ingests a synthetic policy
 ```
 
-Then ingest a policy and ask it something:
+Then ask it something:
 
 ```bash
-policy ingest samples/health-policy.pdf --product "Health Guard" --insurer "Acme"
 policy ask "What is the waiting period for pre-existing diseases?"
 policy ask "What is the premium for a family of four?"   # expect an abstention
-policy inspect <document_id> --page 14                   # read chunks by eye
+policy policies                                          # ids, status, chunk counts
+policy inspect <document_id> --page 2                    # read the chunks by eye
 ```
 
-Or run the API:
+Your own wording, if you have one:
 
 ```bash
-uvicorn services.api.main:app --reload    # docs at http://127.0.0.1:8000/docs
+policy ingest path/to/wording.pdf --product "Health Guard" --insurer "Acme"
 ```
 
-Or run the whole system in containers, which is what gets deployed:
+The tests, which need the database but never the network:
 
 ```bash
-docker compose up --build                 # migrates, seeds a demo policy, serves on :8000
+make test                       # unit tests only
+make test-all                   # everything, including tenant isolation
+```
+
+### The API and the dashboard
+
+Two terminals:
+
+```bash
+make api                                   # http://127.0.0.1:8000/docs
+```
+
+```bash
+cd apps/web
+npm install
+cp .env.example .env.local                 # points at http://127.0.0.1:8000
+npm run dev                                # http://localhost:3000
+```
+
+Or run the API and database as containers, the way they are deployed — the dashboard
+still runs from `npm run dev`:
+
+```bash
+make stack                                 # migrates, seeds, serves on :8000
 ```
 
 ---

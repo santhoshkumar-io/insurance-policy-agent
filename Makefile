@@ -12,7 +12,7 @@ migrate:
 seed:        ## Ingest the synthetic demo policy (idempotent)
 	.venv/bin/python -m rag.cli seed-demo
 
-stack:       ## The whole system in containers, as deployed: migrate, seed, serve
+stack:       ## API + database in containers, as deployed: migrate, seed, serve on :8000
 	docker compose up --build
 
 test:        ## Unit tests: no database, no network
