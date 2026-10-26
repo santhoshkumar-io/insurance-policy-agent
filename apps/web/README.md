@@ -26,8 +26,8 @@ lives in the backend's `.env` only.
 
 ```bash
 npm run lint
-npx tsc --noEmit
-npm run smoke      # drives all three screens in a real browser
+npx next typegen && npx tsc --noEmit   # typegen writes the generated route types first
+npm run smoke                          # drives all three screens in a real browser
 ```
 
 `smoke` needs a running API, a database with an ingested policy, and an OpenAI key,
