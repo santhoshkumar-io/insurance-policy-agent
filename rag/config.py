@@ -1,9 +1,10 @@
 """Single source of configuration. Model IDs are pinned here, not scattered in call sites."""
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -63,7 +64,47 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API. A list rather than "*" even in development:
     # the dashboard runs on a known port, and a wildcard that ships to deployment because
     # nobody revisited it is the usual way this setting becomes a vulnerability.
-    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    #
+    # NoDecode because the default JSON decoding turns a typo into an outage: this value
+    # is typed by hand into a hosting dashboard, and settings are read at import time, so
+    # `CORS_ORIGINS=https://app.vercel.app` -- the obvious thing to write -- raises before
+    # the app exists and takes the whole API down rather than just the browser calls.
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_origins(cls, value):
+        """Accept the three ways someone reasonably writes a list of origins.
+
+        A JSON array is the documented form. A bare URL and a comma-separated list are
+        what people actually type into a hosting dashboard's environment form, and
+        rejecting them costs an outage rather than a misconfiguration -- so they are
+        accepted and normalised instead.
+
+        A trailing slash is stripped because a browser's ``Origin`` header never has one,
+        so ``https://app.vercel.app/`` in this list silently matches nothing. That is the
+        failure this parser is most likely to be handed, and the hardest to see.
+        """
+        if isinstance(value, str):
+            import json
+
+            text = value.strip()
+            try:
+                parsed = json.loads(text) if text.startswith("[") else text.split(",")
+            except json.JSONDecodeError:
+                # Bracketed but not valid JSON -- single quotes, most likely, which is
+                # what anyone writing Python types. Treat the brackets as decoration.
+                parsed = text.strip("[]").split(",")
+            if isinstance(parsed, str):
+                parsed = [parsed]
+        else:
+            parsed = value
+
+        origins = [str(item).strip().strip("\"'").rstrip("/") for item in parsed]
+        return [origin for origin in origins if origin]
 
     @field_validator("database_url")
     @classmethod

@@ -48,15 +48,22 @@ Environment:
 
 ```
 OPENAI_API_KEY=sk-...
-DATABASE_URL=postgresql+psycopg://...        # from step 1
+DATABASE_URL=<the pooled URI from step 1>
 CORS_ORIGINS=["https://<your-app>.vercel.app"]
 RATE_LIMIT_QUESTIONS_PER_MINUTE=10
 RATE_LIMIT_UPLOADS_PER_MINUTE=3
 DAILY_QUESTION_CAP=300
 ```
 
-`CORS_ORIGINS` is a JSON list and must contain the real dashboard origin. It is not `*`,
-and `tests/test_cors.py` fails if it ever becomes `*`.
+`CORS_ORIGINS` must contain the dashboard's real origin — a JSON array is the documented
+form, but a bare URL or a comma-separated list is accepted too, and a trailing slash is
+stripped. That tolerance is not politeness: settings are read at import time, so a value
+the parser rejects does not misconfigure CORS, it stops the container booting.
+
+It is never `*`, and `tests/test_cors.py` fails if it becomes one.
+
+**Vercel preview deployments get their own URLs** (`...-git-branch-....vercel.app`) and
+will not be in this list. Only the production domain works unless you add them.
 
 On first boot the container migrates, seeds the synthetic demo policy, and starts
 uvicorn. Seeding is non-fatal: without a working key the API still starts, with an empty
