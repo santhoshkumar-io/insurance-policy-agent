@@ -73,9 +73,12 @@ lives only in the API's environment.
 ## 4. Check it
 
 ```bash
-curl https://<api>/ready            # {"status":"ready"}
-curl https://<api>/policies         # the seeded demo policy, status "ready"
+curl https://<api>/ready
+curl https://<api>/policies
 ```
+
+The first returns `{"status":"ready"}`; the second lists the seeded demo policy with
+status `ready`.
 
 Then in the browser: ask a question, confirm the citation panel shows page, section and
 both scores; ask something the wording does not answer and confirm the abstention renders

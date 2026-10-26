@@ -62,25 +62,33 @@ Needs Docker, Python 3.12+ with [uv](https://docs.astral.sh/uv/), and Node 22+ f
 dashboard. No policy PDF of your own is required — the demo document is generated.
 
 ```bash
-cp .env.example .env            # add your OPENAI_API_KEY
-make up                         # PostgreSQL 17 + pgvector on port 5433 (database only)
+cp .env.example .env
+make up
 
 uv venv --python 3.12
 uv pip install -e ".[dev]"
 source .venv/bin/activate
 
 make migrate
-make seed                       # generates and ingests a synthetic policy
+make seed
 ```
+
+Put your `OPENAI_API_KEY` in the `.env` you just copied. `make up` starts PostgreSQL 17
+with pgvector on port 5433 and nothing else; `make seed` generates a synthetic policy and
+ingests it, so you need no PDF of your own to get a working system.
 
 Then ask it something:
 
 ```bash
 policy ask "What is the waiting period for pre-existing diseases?"
-policy ask "What is the premium for a family of four?"   # expect an abstention
-policy policies                                          # ids, status, chunk counts
-policy inspect <document_id> --page 2                    # read the chunks by eye
+policy ask "What is the premium for a family of four?"
+policy policies
+policy inspect <document_id> --page 2
 ```
+
+The second question has no answer in a policy wording, so expect an abstention with its
+reason. `policy policies` lists ids, status and chunk counts; `policy inspect` prints the
+chunks of one page so you can read what retrieval is actually working from.
 
 Your own wording, if you have one:
 
@@ -91,30 +99,36 @@ policy ingest path/to/wording.pdf --product "Health Guard" --insurer "Acme"
 The tests, which need the database but never the network:
 
 ```bash
-make test                       # unit tests only
-make test-all                   # everything, including tenant isolation
+make test
+make test-all
 ```
+
+`make test` is the unit tests alone. `make test-all` adds everything that needs the
+database, including the tenant isolation suite.
 
 ### The API and the dashboard
 
 Two terminals:
 
 ```bash
-make api                                   # http://127.0.0.1:8000/docs
+make api
 ```
 
 ```bash
 cd apps/web
 npm install
-cp .env.example .env.local                 # points at http://127.0.0.1:8000
-npm run dev                                # http://localhost:3000
+cp .env.example .env.local
+npm run dev
 ```
 
-Or run the API and database as containers, the way they are deployed — the dashboard
-still runs from `npm run dev`:
+The API serves its own documentation at <http://127.0.0.1:8000/docs>; the dashboard is at
+<http://localhost:3000>. The `.env.local` you copied already points at the API.
+
+Or run the API and database as containers, the way they are deployed — migrating,
+seeding and serving on port 8000. The dashboard still runs from `npm run dev`:
 
 ```bash
-make stack                                 # migrates, seeds, serves on :8000
+make stack
 ```
 
 ---
@@ -219,9 +233,14 @@ deduplicated rather than deleted — kept once on the title page, stripped there
 
 ## The dashboard
 
+Two terminals — the API, then the dashboard at <http://localhost:3000>:
+
 ```bash
-uvicorn services.api.main:app --reload     # terminal 1
-cd apps/web && npm install && npm run dev  # terminal 2 -- http://localhost:3000
+uvicorn services.api.main:app --reload
+```
+
+```bash
+cd apps/web && npm install && npm run dev
 ```
 
 Three screens — upload, library, ask — and the citation panel is the point of all three.
@@ -358,10 +377,12 @@ sits in front of is not stubbed** — that was the point of building it first.
 
 ## Evaluation
 
+One configuration, the headline matrix, the regression fixture, and the drafting helper:
+
 ```bash
-policy eval --set lic-real --mode hybrid_bm25 --k 5        # one configuration
-policy experiments --set lic-real --rerank --generate      # the headline matrix
-policy experiments --set acme-synthetic --k 1              # the regression fixture
+policy eval --set lic-real --mode hybrid_bm25 --k 5
+policy experiments --set lic-real --rerank --generate
+policy experiments --set acme-synthetic --k 1
 policy eval-draft <policy_id> --out candidates.yaml
 ```
 

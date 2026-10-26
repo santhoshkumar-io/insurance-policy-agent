@@ -12,10 +12,16 @@ one unlabelled number was a real bug in this codebase; see `docs/decisions.md`.
 Abstentions render as abstentions, with their reason. A blank answer box would undo the
 feature the system is built around.
 
+From the repository root, start the API; then, here, the dashboard — it opens on
+<http://localhost:3000>:
+
 ```bash
-uvicorn services.api.main:app --reload   # from the repository root
+uvicorn services.api.main:app --reload
+```
+
+```bash
 npm install
-npm run dev                              # http://localhost:3000
+npm run dev
 ```
 
 `NEXT_PUBLIC_API_BASE_URL` points at the API (see `.env.example`). It is public by
@@ -26,9 +32,13 @@ lives in the backend's `.env` only.
 
 ```bash
 npm run lint
-npx next typegen && npx tsc --noEmit   # typegen writes the generated route types first
-npm run smoke                          # drives all three screens in a real browser
+npx next typegen && npx tsc --noEmit
+npm run smoke
 ```
+
+`next typegen` writes the generated route types that `tsc` needs — a fresh clone has no
+`.next`, which is how this passed locally and failed in CI. `npm run smoke` drives all
+three screens in a real browser.
 
 `smoke` needs a running API, a database with an ingested policy, and an OpenAI key,
 because the two answers it checks are a cited answer and an abstention. It is not in CI
