@@ -12,7 +12,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from rag.config import get_settings
-from rag.retrieval import bm25, keyword, vector
+from rag.retrieval import bm25, keyword, section, vector
 from rag.retrieval.fusion import reciprocal_rank_fusion
 from rag.retrieval.types import RetrievalMode, RetrievedChunk
 
@@ -55,12 +55,26 @@ def search(
         )
 
     lexical_hits: list[RetrievedChunk] = []
-    if mode in {RetrievalMode.KEYWORD, RetrievalMode.HYBRID}:
+    if mode in {
+        RetrievalMode.KEYWORD,
+        RetrievalMode.HYBRID,
+        RetrievalMode.HYBRID_SECTION,
+    }:
         lexical_hits = keyword.retrieve(
             session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
         )
-    elif mode in {RetrievalMode.BM25, RetrievalMode.HYBRID_BM25}:
+    elif mode in {
+        RetrievalMode.BM25,
+        RetrievalMode.HYBRID_BM25,
+        RetrievalMode.HYBRID_BM25_SECTION,
+    }:
         lexical_hits = bm25.retrieve(
+            session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
+        )
+
+    section_hits: list[RetrievedChunk] = []
+    if mode in {RetrievalMode.HYBRID_SECTION, RetrievalMode.HYBRID_BM25_SECTION}:
+        section_hits = section.retrieve(
             session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
         )
 
@@ -69,8 +83,9 @@ def search(
     elif mode in {RetrievalMode.KEYWORD, RetrievalMode.BM25}:
         results = lexical_hits[: fan_out if rerank else top_k]
     else:
+        arms = [arm for arm in (vector_hits, lexical_hits, section_hits) if arm]
         results = reciprocal_rank_fusion(
-            [vector_hits, lexical_hits],
+            arms,
             k=settings.rrf_k,
             top_k=fan_out if rerank else top_k,
         )

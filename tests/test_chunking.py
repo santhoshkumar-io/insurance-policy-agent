@@ -13,11 +13,24 @@ def test_extracts_every_page_with_correct_numbering(structured_policy_pdf):
     assert all(p.char_count > 0 for p in doc.pages)
 
 
-def test_running_footer_is_stripped(structured_policy_pdf):
+def test_running_footer_is_kept_once_and_its_repeats_stripped(structured_policy_pdf):
+    """Furniture is deduplicated, not deleted.
+
+    This previously asserted the footer was removed entirely. That turned out to destroy
+    real content on the LIC documents, where the plan's UIN lives in the running header
+    and so was absent from the corpus altogether -- see docs/decisions.md. The contract
+    is now: keep the earliest occurrence, strip the repeats.
+    """
     doc = extract_document(structured_policy_pdf)
     text = " ".join(s.text for p in doc.pages for s in p.spans)
-    # The footer appears on all three pages at the same y-position.
-    assert "UIN ACM0001" not in text
+    assert text.count("UIN ACM0001") == 1
+
+    pages_with_footer = [
+        page.number
+        for page in doc.pages
+        if any("UIN ACM0001" in s.text for s in page.spans)
+    ]
+    assert pages_with_footer == [1]
 
 
 def test_headings_become_section_paths(structured_policy_pdf):

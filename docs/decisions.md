@@ -273,3 +273,145 @@ misread that badly should not rely on the reader to catch it.
 
 The generated block is fenced between markers so hand-written analysis around it survives
 regeneration — the analysis is the part that makes the numbers mean anything.
+
+---
+
+## 2026-10-26 — Heading detection is anchored on the `PART` backbone
+
+**Decision.** `PART A..G` is recognised explicitly and pins section level 1; nothing else
+may occupy that level. Numbered clauses start at level 2.
+
+**Why.** The font signal that works on a clean document barely exists in real IRDAI-filed
+wordings. In LIC's Digi Term, 564 body lines and 138 heading-ish lines are **all 10.0pt** —
+headings are the same point size as body text, and bold is used for mid-sentence emphasis
+too. Prominence alone accepted 71 lines as headings where about 53 were real.
+
+What is reliable is the filed structure: `PART- A`, `PART– B: DEFINITIONS`,
+`PART– C: BENEFITS`, `PART – D: CONDITIONS RELATED TO SERVICING ASPECTS`, `PART E`,
+`PART – F`, `PART – G`. Identical in both documents, because IRDAI prescribes it. That is
+a domain rule, not a per-document hack.
+
+Pinning level 1 was the other half of the fix. A numbered clause claiming level 1 wiped
+out the parent for every chunk that followed, which is how `1. Proof of Age:` lost
+`PART – D` and a stray bold `Name` on the schedule page displaced `PART- A`.
+
+Four more fixes landed with it, each with an observed failure behind it: line size is now
+the dominant span size rather than the max (a bold `18.` was promoting whole definition
+sentences to level-1 headings); purely numeric candidates are rejected (17 of 71 accepted
+headings were page numbers); numeric furniture is stripped by y-band because `1`, `2`, `3`
+never match each other by text; and empty padding levels are dropped from the rendered
+path, which is what produced `` >  > PART- A``.
+
+Result: every section path in both documents now sits under its correct PART, and reads
+like the document's actual structure.
+
+**Reverses if.** A corpus of wordings that are not IRDAI-filed. The generic rules still
+apply; only the PART anchor is India-specific.
+
+---
+
+## 2026-10-26 — Running furniture is deduplicated, not deleted
+
+**Decision.** `_strip_running_headers` keeps the earliest occurrence of each repeated
+line and strips the rest.
+
+**Why.** Found by a benchmark question rather than by a test. *"What is the UIN of this
+plan?"* was unanswerable, and not because the document omits it: `512N356V02` sits in the
+running header of all 17 pages, so furniture detection removed it from the corpus
+**entirely**. The insurer name and the plan name had the same problem.
+
+These lines are genuinely repeated page furniture *and* genuinely substantive. Keeping
+the title-page occurrence preserves the information exactly once, where it is most
+meaningful, and still removes the noise from the other sixteen pages. Page numbers remain
+deleted outright — they carry no information even once.
+
+This is the clearest case so far of the benchmark earning its cost: no unit test would
+have caught content that was silently absent.
+
+**Reverses if.** Nothing. The previous behaviour was destroying data.
+
+---
+
+## 2026-10-26 — Real BM25 beats `ts_rank_cd` decisively, and the reversal condition has fired
+
+**Decision.** The phase-2 entry on the keyword arm said it would reverse "if BM25 wins
+decisively on a real corpus — the answer then is the ParadeDB `pg_search` extension".
+On the LIC corpus at k=5 over 41 answerable questions:
+
+| Arm | Recall@5 | MRR |
+|---|---|---|
+| `ts_rank_cd` | 0.872 | 0.608 |
+| real BM25 (`rank_bm25`) | **0.974** | **0.795** |
+| hybrid RRF(vector + `ts_rank_cd`) | 0.897 | 0.782 |
+| hybrid RRF(vector + BM25) | **1.000** | 0.898 |
+| vector alone | 0.949 | 0.911 |
+
+An MRR gap of 0.187 between the two lexical arms is not noise, and on the synthetic
+corpus it was 0.032. **So `pg_search` is now justified** and goes on the phase-4 list.
+
+**Why the gap is real.** BM25 weights rare terms by inverse document frequency;
+`ts_rank_cd` does not. These documents are full of rare, high-value tokens — `512N356V02`,
+`Section 45`, `Unexpired Risk Premium Value`, `Panchnama` — and the synthetic corpus had
+almost none, which is exactly the limitation phase 2 recorded.
+
+---
+
+## 2026-10-26 — Hybrid retrieval wins on a real corpus: the phase-2 verdict was corpus-bound
+
+**Decision.** `retrieval_mode` stays `vector` for now, but the phase-2 conclusion that
+"plain vector beats every hybrid" is **withdrawn** as a general claim. It held only on an
+8-chunk synthetic document.
+
+`hybrid RRF(vector + BM25)` reaches **Recall@5 = 1.000** against vector's 0.949 — every
+answerable question's evidence retrieved, which vector alone does not manage. Vector
+retains a narrow MRR lead (0.911 vs 0.898), and `hybrid + cross-encoder` has the best MRR
+of all (0.932).
+
+**Why the default has not changed yet.** The configuration that wins on recall uses the
+in-memory BM25 arm, which re-indexes the whole corpus on every query. That is a benchmark
+tool, not a serving path, and shipping it would trade a correctness win for a latency
+problem that grows with the corpus. The honest sequence is `pg_search` first, then
+re-measure, then switch the default to a hybrid that is actually deployable.
+
+Recording this rather than quietly flipping a setting is the point: the measurement says
+hybrid is better, and the engineering says the version that measured better cannot ship.
+
+---
+
+## 2026-10-26 — Section-aware retrieval was my own top recommendation, and it lost
+
+**Decision.** `HYBRID_SECTION` and `HYBRID_BM25_SECTION` are built, tested and **not
+adopted**. `rag/retrieval/section.py` stays in the tree behind a flag.
+
+**Why it was built.** Phase 2's sharpest finding: every configuration returned the
+*definition* of a pre-existing disease above the *waiting-period clause*, because the two
+passages share nearly all their vocabulary, and a cross-encoder shown both still preferred
+the definition. The section path is what distinguishes them, and it was unused at query
+time. I called it "the first thing to try in the next phase".
+
+**What the measurement said:**
+
+| Configuration | Recall@5 | MRR |
+|---|---|---|
+| hybrid RRF(vector + `ts_rank_cd`) | 0.897 | 0.782 |
+| + section arm | 0.923 | 0.772 |
+| hybrid RRF(vector + BM25) | **1.000** | **0.898** |
+| + section arm | 0.897 | 0.750 |
+
+Added to the weaker lexical pair it buys a little recall for a little ranking. Added to
+the best pair it is **actively destructive** — 10 points of recall and 15 of MRR. The
+synthetic corpus agrees (0.889 → 0.722 at k=1), so this is not a one-corpus artifact.
+
+**Why it fails, which is the useful part.** A section path identifies a *region*, not a
+*passage*. Eight chunks share `PART – D: CONDITIONS RELATED TO SERVICING ASPECTS`, so a
+query matching that path returns all eight at high rank and each contributes its
+reciprocal to the fusion. The arm floods RRF with weakly-relevant candidates and dilutes
+the genuinely relevant ones. RRF treats every arm as an equal voter, and this signal is
+not of equal quality.
+
+The diagnosis was right and the remedy was wrong. Section metadata should be a
+**tie-breaker or a filter**, not a voting arm — re-rank within the fused list, or restrict
+candidates when a query clearly names a section. That is worth trying; adding it as a
+fourth voter is not.
+
+**Reverses if.** Reimplemented as a tie-breaker and measured again.

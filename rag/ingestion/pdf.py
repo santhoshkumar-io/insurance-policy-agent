@@ -91,6 +91,11 @@ def file_checksum(path: Path) -> str:
     return h.hexdigest()
 
 
+# A short run of digits and separators: "7", "12", "Page 3" is excluded deliberately --
+# that is caught by the identical-text rule once "Page" makes it recur.
+_NUMERIC_RUN = re.compile(r"^[\d\s.,:;|/\-–—()]{1,8}$")
+
+
 def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -191,13 +196,50 @@ def _strip_running_headers(pages: list[Page], min_fraction: float = 0.6) -> None
 
     threshold = max(3, int(len(pages) * min_fraction))
     furniture = {key for key, n in counts.items() if n >= threshold and len(key[0]) < 120}
-    if not furniture:
+
+    # Page numbers need a separate rule: the text differs on every page ("1", "2", "3"),
+    # so identical-text matching never fires. What recurs is the *shape* -- a numeric-only
+    # run in the same y-band on most pages. Without this, every page number was reaching
+    # the chunker and being promoted to a heading.
+    numeric_bands: Counter[int] = Counter()
+    for page in pages:
+        for span in page.spans:
+            text = _normalise(span.text)
+            if text and _NUMERIC_RUN.match(text):
+                numeric_bands[band(span.y0)] += 1
+    furniture_bands = {b for b, n in numeric_bands.items() if n >= threshold}
+
+    if not furniture and not furniture_bands:
         return
 
+    # Keep the first occurrence of each piece of furniture and strip the repeats.
+    #
+    # Found by a benchmark question: "What is the UIN of this plan?" was unanswerable
+    # because the UIN sits in the running header of every page, so furniture detection
+    # removed it from the corpus entirely. It is genuinely repeated page furniture *and*
+    # genuinely substantive -- the same is true of the insurer name and the plan name.
+    # Keeping the title-page occurrence preserves the information exactly once, where it
+    # is most meaningful, while still removing the noise from the other sixteen pages.
+    seen: set[tuple[str, int]] = set()
+
+    def keep(span: Span) -> bool:
+        text = _normalise(span.text)
+        key = (text, band(span.y0))
+
+        if key in furniture:
+            if key in seen:
+                return False
+            seen.add(key)
+            return True
+
+        if band(span.y0) in furniture_bands and _NUMERIC_RUN.match(text):
+            # Page numbers carry no information even once.
+            return False
+
+        return True
+
     for page in pages:
-        page.spans = [
-            s for s in page.spans if (_normalise(s.text), band(s.y0)) not in furniture
-        ]
+        page.spans = [s for s in page.spans if keep(s)]
 
 
 def extract_document(path: str | Path, max_pages: int = 600) -> ExtractedDocument:

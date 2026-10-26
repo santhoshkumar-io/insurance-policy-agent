@@ -30,6 +30,7 @@ from rag.evaluation.metrics import (
     QuestionResult,
     RunMetrics,
     aggregate,
+    conditions_covered,
     ndcg_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -66,6 +67,12 @@ def default_matrix() -> list[Configuration]:
         Configuration("bm25 (rank_bm25)", RetrievalMode.BM25),
         Configuration("hybrid RRF(vector + ts_rank_cd)", RetrievalMode.HYBRID),
         Configuration("hybrid RRF(vector + bm25)", RetrievalMode.HYBRID_BM25),
+        Configuration(
+            "hybrid RRF(vector + ts_rank_cd + section)", RetrievalMode.HYBRID_SECTION
+        ),
+        Configuration(
+            "hybrid RRF(vector + bm25 + section)", RetrievalMode.HYBRID_BM25_SECTION
+        ),
     ]
 
 
@@ -118,7 +125,9 @@ def run_question(
 
     result = QuestionResult(
         question_id=question.id,
-        answerable=question.answerable,
+        answerable=question.is_answerable,
+        conditional=question.is_conditional,
+        conditions_covered=conditions_covered(question, chunks, k),
         recall=recall_at_k(question, chunks, k),
         rr=reciprocal_rank(question, chunks),
         ndcg=ndcg_at_k(question, chunks, k),
@@ -180,11 +189,17 @@ def run_configuration(
     return aggregate(config.name, k, results)
 
 
-def save_run(metrics: RunMetrics, config: Configuration) -> Path:
-    """Persist the raw per-question output so a table row can be traced back."""
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = RESULTS_DIR / f"{config.slug}-k{metrics.k}.json"
+def save_run(metrics: RunMetrics, config: Configuration, set_name: str = "") -> Path:
+    """Persist the raw per-question output so a table row can be traced back.
+
+    Namespaced by question set: without it, running the synthetic suite would overwrite
+    the real benchmark's results and a table row would no longer trace to its own output.
+    """
+    directory = RESULTS_DIR / set_name if set_name else RESULTS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{config.slug}-k{metrics.k}.json"
     payload = asdict(metrics)
     payload["config"] = {"mode": str(config.mode), "rerank": config.rerank}
+    payload["set_name"] = set_name
     path.write_text(json.dumps(payload, indent=2, default=str))
     return path

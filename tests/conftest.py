@@ -18,6 +18,7 @@ import pytest
 from scripts.sample_policy import (
     build_flat_policy,
     build_injected_policy,
+    build_lic_shaped_policy,
     build_structured_policy,
 )
 
@@ -34,6 +35,12 @@ def structured_policy_pdf(tmp_path_factory) -> Path:
 def flat_policy_pdf(tmp_path_factory) -> Path:
     """A policy with no structure at all -- must trigger the windowed fallback."""
     return build_flat_policy(tmp_path_factory.mktemp("pdfs") / "flat_policy.pdf")
+
+
+@pytest.fixture(scope="session")
+def lic_shaped_pdf(tmp_path_factory) -> Path:
+    """A document with the structural traps the real LIC wordings exposed."""
+    return build_lic_shaped_policy(tmp_path_factory.mktemp("pdfs") / "lic_shaped.pdf")
 
 
 @pytest.fixture(scope="session")

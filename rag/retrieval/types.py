@@ -23,6 +23,13 @@ class RetrievalMode(StrEnum):
     BM25 = "bm25"
     HYBRID = "hybrid"
     HYBRID_BM25 = "hybrid_bm25"
+    # Adds a third arm ranking on the section path. Targets the phase-2 failure where a
+    # term's definition outranked the clause that governs it.
+    HYBRID_SECTION = "hybrid_section"
+    # The same, with BM25 as the lexical arm instead of ts_rank_cd. Added because the
+    # real corpus showed BM25 beating ts_rank_cd by a wide margin, so pairing the section
+    # arm with the weaker lexical arm was testing the wrong combination.
+    HYBRID_BM25_SECTION = "hybrid_bm25_section"
 
     @property
     def uses_vector(self) -> bool:
@@ -30,12 +37,15 @@ class RetrievalMode(StrEnum):
             RetrievalMode.VECTOR,
             RetrievalMode.HYBRID,
             RetrievalMode.HYBRID_BM25,
+            RetrievalMode.HYBRID_SECTION,
+            RetrievalMode.HYBRID_BM25_SECTION,
         }
 
 
 class RetrievedBy(StrEnum):
     VECTOR = "vector"
     KEYWORD = "keyword"
+    SECTION = "section"
     BOTH = "both"
 
 

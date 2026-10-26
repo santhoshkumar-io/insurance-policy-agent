@@ -337,12 +337,26 @@ set, reproducible via `policy experiments`.
 > project's actual differentiator — a polished UI over unmeasured retrieval is precisely what the
 > brief's stack principle warns against.
 
-### Week 3 — Interface
-Next.js dashboard: upload, policy library, chat with a citation side-panel showing the retrieved
-text, retrieval provenance and both scores. OCR fallback only if the corpus turns out to need it.
+### Week 3 — Real documents *(reordered again — the PDFs arrived)*
+Real IRDAI-filed LIC wordings ingested. Chunker repaired for documents whose headings share
+the body font size: `PART A..G` anchoring, dominant-span sizing, numeric furniture, definition
+sentences, path compaction, furniture deduplication. 47-question headline benchmark on the
+real corpus, kept separate from the synthetic regression suite. Section-path retrieval arm
+built and measured. Tri-state answerability. Matrix re-run.
 
-**Exit check:** a person who has never seen the codebase uploads a policy in the browser, asks a
-question, and clicks a citation through to the source text and page.
+**Exit check:** `docs/experiments.md` reports the real corpus, and states whether the
+week-2 verdict survived. *(It did not: hybrid RRF(vector + BM25) reaches Recall@5 = 1.000
+against vector's 0.949, and real BM25 beats `ts_rank_cd` by 0.187 MRR. The section arm was
+rejected on measurement.)*
+
+### Week 4 — Interface
+Next.js dashboard: upload, policy library, chat with a citation side-panel showing the
+retrieved text, retrieval provenance and both scores. BM25 inside Postgres via ParadeDB
+`pg_search`, now justified by measurement, then re-measure and set the default to a hybrid
+that is actually deployable.
+
+**Exit check:** a person who has never seen the codebase uploads a policy in the browser,
+asks a question, and clicks a citation through to the source text and page.
 
 ### Week 4 — Structured workflows
 Policy comparison: aspect list, per-aspect per-policy retrieval, structured extraction, comparison

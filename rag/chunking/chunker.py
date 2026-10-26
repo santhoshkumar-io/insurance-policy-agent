@@ -31,6 +31,23 @@ MIN_HEADINGS_FOR_STRUCTURED = 3
 CLAUSE_NUMBER = re.compile(r"^\s*(\d+(?:\.\d+)*\.?|\([a-z]\)|\([ivxl]+\)|[IVXL]+\.)\s+\S")
 SENTENCE_END = re.compile(r"(?<=[.;:])\s+")
 
+# "PART- A", "PART– B: DEFINITIONS", "PART – D: CONDITIONS...". Every IRDAI-filed policy
+# wording is organised into these parts, and in the LIC documents they are the only
+# reliable structural signal -- headings there are the same point size as body text, so
+# visual prominence cannot find them. Uppercase is required: the lower-case
+# cross-reference "Part C of this Policy Document." is a sentence, not a heading.
+PART_HEADING = re.compile(r"^PART\s*[-–—]?\s*([A-G])\b(?!\w)")
+
+# "18. Endorsement means ...", "28. Material information shall mean ...". These are
+# definition entries in PART B -- body text that happens to start with a clause number.
+DEFINITION_SENTENCE = re.compile(
+    r"^\s*\d+\.\s+.{0,60}?\b(means|shall mean|is|are|refers to|includes)\b", re.I
+)
+
+# A line that is only digits (optionally with punctuation) is page furniture, never a
+# heading. Page numbers were being promoted to level-3 headings on every page.
+NUMERIC_ONLY = re.compile(r"^[\d\s.,:;|/\-–—()]+$")
+
 
 @dataclass
 class ChunkDraft:
@@ -51,6 +68,23 @@ class _Line:
     page: int
     y0: float
     x0: float
+    # Character-weighted accumulators, so `size` and `bold` describe what the line mostly
+    # *is* rather than what its most prominent fragment is. Taking the max let a bold "18."
+    # marker promote a whole definition sentence to a top-level heading.
+    _weights: dict = field(default_factory=dict)
+    _bold_chars: int = 0
+    _total_chars: int = 0
+
+    def absorb(self, text: str, size: float, bold: bool) -> None:
+        n = max(1, len(text.strip()))
+        key = round(size, 1)
+        self._weights[key] = self._weights.get(key, 0) + n
+        self._total_chars += n
+        if bold:
+            self._bold_chars += n
+        self.size = max(self._weights, key=lambda k: self._weights[k])
+        # Bold only when bold dominates the line, not when any fragment is bold.
+        self.bold = self._bold_chars * 2 > self._total_chars
 
 
 @dataclass
@@ -58,7 +92,9 @@ class _Section:
     path: list[str] = field(default_factory=list)
 
     def as_str(self) -> str:
-        return " > ".join(self.path)
+        # Drop padding levels. _push_section pads to reach a depth, which otherwise
+        # renders as " >  > PART- A".
+        return " > ".join(part for part in self.path if part.strip())
 
 
 def _group_lines(spans: list[Span], y_tolerance: float = 2.5) -> list[_Line]:
@@ -70,19 +106,18 @@ def _group_lines(spans: list[Span], y_tolerance: float = 2.5) -> list[_Line]:
             if last.page == span.page and abs(last.y0 - span.y0) <= y_tolerance:
                 joiner = "" if last.text.endswith(("-", " ")) else " "
                 last.text = (last.text + joiner + span.text).strip()
-                last.size = max(last.size, span.size)
-                last.bold = last.bold or span.bold
+                last.absorb(span.text, span.size, span.bold)
                 continue
-        lines.append(
-            _Line(
-                text=span.text.strip(),
-                size=span.size,
-                bold=span.bold,
-                page=span.page,
-                y0=span.y0,
-                x0=span.x0,
-            )
+        line = _Line(
+            text=span.text.strip(),
+            size=span.size,
+            bold=span.bold,
+            page=span.page,
+            y0=span.y0,
+            x0=span.x0,
         )
+        line.absorb(span.text, span.size, span.bold)
+        lines.append(line)
     return [ln for ln in lines if ln.text]
 
 
@@ -96,6 +131,24 @@ def _heading_level(line: _Line, body_size: float) -> int | None:
     if not text or len(text) > 140:
         return None
 
+    # The PART backbone first: it is the one signal that survives documents where
+    # headings share the body font size.
+    if PART_HEADING.match(text) and len(text) < 80 and not text.endswith("."):
+        return 1
+
+    # Page numbers and other numeric furniture.
+    if NUMERIC_ONLY.match(text):
+        return None
+
+    # Quote marks mean quoted material, not a section name. Catches line-grouping
+    # artifacts like `Death ”.` where a fragment of the following line merged in.
+    if any(ch in text for ch in '"\u201c\u201d'):
+        return None
+
+    # A numbered definition is body text, however emphatically it is typeset.
+    if DEFINITION_SENTENCE.match(text):
+        return None
+
     words = text.split()
     # A heading names a section; it does not make a statement. These three shapes are
     # all body text that font metrics alone would misread as a heading -- most often a
@@ -104,22 +157,25 @@ def _heading_level(line: _Line, body_size: float) -> int | None:
         return None
     if ":" in text and len(text.split(":", 1)[1].strip()) > 30:
         return None
-    if len(words) > 14:
+    # A heading names a section; past about ten words it is making a statement instead.
+    if len(words) > 10:
         return None
 
     match = CLAUSE_NUMBER.match(text)
     numbered = bool(match)
     prominent = line.size >= body_size * 1.08 or (line.bold and line.size >= body_size * 0.98)
 
+    # Level 1 belongs to PART alone. A numbered clause or a bold schedule label that
+    # claimed it would wipe out the document's structural backbone for every chunk that
+    # followed -- which is how "1. Proof of Age:" lost its PART D parent and a stray
+    # "Name" on the schedule page displaced PART A.
     if numbered and (prominent or len(text) < 90):
         number = match.group(1).rstrip(".")
         if number.startswith("("):
-            return 3
-        return min(1 + number.count("."), 4)
+            return 4
+        return min(2 + number.count("."), 4)
 
     if prominent and len(text) < 90:
-        if line.size >= body_size * 1.35:
-            return 1
         if line.size >= body_size * 1.15:
             return 2
         return 3

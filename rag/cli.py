@@ -37,6 +37,28 @@ app = typer.Typer(add_completion=False, help="Insurance Policy Intelligence AI")
 console = Console()
 
 
+# The suites live side by side: the synthetic one is a deterministic fixture that runs
+# without the real PDFs (which are gitignored), and the LIC one is the headline benchmark.
+# Mixing them would let an easy 4-page corpus inflate the reported numbers.
+EVAL_SETS = {
+    "acme-synthetic": Path("evals/questions.yaml"),
+    "lic-real": Path("evals/questions-lic.yaml"),
+}
+
+
+def _resolve_set(name: str) -> Path:
+    if name in EVAL_SETS:
+        return EVAL_SETS[name]
+    candidate = Path(name)
+    if candidate.exists():
+        return candidate
+    console.print(
+        f"[red]Unknown question set {name!r}.[/red] Known: {', '.join(EVAL_SETS)} "
+        f"(or pass a path to a YAML file)."
+    )
+    raise typer.Exit(1)
+
+
 @app.command()
 def ingest(
     path: Path = typer.Argument(..., exists=True, readable=True),
@@ -301,6 +323,9 @@ def reindex(
 
 @app.command()
 def eval(
+    question_set: str = typer.Option(
+        "acme-synthetic", "--set", help="acme-synthetic | lic-real | path to a YAML file"
+    ),
     mode: RetrievalMode = typer.Option(None, "--mode", help="Retrieval strategy"),
     rerank: bool = typer.Option(False, "--rerank", help="Apply the cross-encoder"),
     k: int = typer.Option(5, "--k", help="Cut-off for Recall@k and nDCG@k"),
@@ -318,7 +343,7 @@ def eval(
         mode=RetrievalMode(mode or settings.retrieval_mode),
         rerank=rerank,
     )
-    eval_set = load_eval_set()
+    eval_set = load_eval_set(_resolve_set(question_set))
 
     with console.status(f"Running {config.name} over {len(eval_set.questions)} questions..."):
         with session_scope() as session:
@@ -328,7 +353,7 @@ def eval(
             )
 
     _print_runs([metrics], k)
-    path = save_run(metrics, config)
+    path = save_run(metrics, config, eval_set.set_name)
     console.print(f"[dim]per-question output: {path}[/dim]")
 
     unmatched = [r for r in metrics.per_question if r.notes]
@@ -343,6 +368,9 @@ def eval(
 
 @app.command()
 def experiments(
+    question_set: str = typer.Option(
+        "acme-synthetic", "--set", help="acme-synthetic | lic-real | path to a YAML file"
+    ),
     k: int = typer.Option(5, "--k"),
     rerank: bool = typer.Option(
         False, "--rerank", help="Add a reranked row (needs the [rerank] extra)"
@@ -368,7 +396,7 @@ def experiments(
             Configuration("hybrid + cross-encoder", Mode.HYBRID, rerank=True)
         )
 
-    eval_set = load_eval_set()
+    eval_set = load_eval_set(_resolve_set(question_set))
     # One embedding per question, shared across every configuration in the matrix.
     vector_cache: dict = {}
     runs = []
@@ -387,7 +415,7 @@ def experiments(
                     vector_cache=vector_cache,
                 )
             runs.append(metrics)
-            save_run(metrics, config)
+            save_run(metrics, config, eval_set.set_name)
             console.print(
                 f"  [green]done[/green] {config.name}: "
                 f"recall@{k}={metrics.recall_at_k:.3f} mrr={metrics.mrr:.3f}"

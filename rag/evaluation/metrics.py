@@ -25,6 +25,20 @@ def hits(question: EvalQuestion, chunks: list[RetrievedChunk]) -> list[bool]:
     return [any(chunk.covers_page(page) for page in expected) for chunk in chunks]
 
 
+def conditions_covered(question: EvalQuestion, chunks: list[RetrievedChunk], k: int) -> bool:
+    """Whether *every* labelled page reached the model, not merely one of them.
+
+    A conditional question is only answered well if all the competing conditions are in
+    front of the model. Surfacing one of three waiting periods and answering confidently
+    is the failure this metric exists to catch -- and ordinary Recall@k would score it a
+    full hit.
+    """
+    if not question.expected_pages:
+        return False
+    top = chunks[:k]
+    return all(any(chunk.covers_page(page) for chunk in top) for page in question.expected_pages)
+
+
 def section_hit(question: EvalQuestion, chunks: list[RetrievedChunk], k: int) -> bool:
     """Stricter secondary signal: did the right *section* surface, not just the page?
 
@@ -71,6 +85,10 @@ def ndcg_at_k(question: EvalQuestion, chunks: list[RetrievedChunk], k: int) -> f
 class QuestionResult:
     question_id: str
     answerable: bool
+    # Conditional questions leave the binary abstention rates and are scored on whether
+    # retrieval surfaced *every* labelled condition instead (see Answerability).
+    conditional: bool = False
+    conditions_covered: bool = False
     recall: float = 0.0
     rr: float = 0.0
     ndcg: float = 0.0
@@ -100,6 +118,8 @@ class RunMetrics:
     false_answer_rate: float | None = None
     false_abstention_rate: float | None = None
     tokens_per_100q: int | None = None
+    # None when the set contains no conditional questions.
+    conditional_coverage: float | None = None
     per_question: list[QuestionResult] = field(default_factory=list)
 
     def as_row(self) -> dict:
@@ -114,6 +134,7 @@ class RunMetrics:
             "section": f"{self.section_accuracy:.3f}",
             "false answer": pct(self.false_answer_rate),
             "false abstain": pct(self.false_abstention_rate),
+            "cond. coverage": pct(self.conditional_coverage),
             "p50 ms": f"{self.p50_latency_ms:.0f}",
             "tokens/100q": "—" if self.tokens_per_100q is None else f"{self.tokens_per_100q:,}",
         }
@@ -128,17 +149,28 @@ def aggregate(name: str, k: int, results: list[QuestionResult]) -> RunMetrics:
     unanswerable = [r for r in results if not r.answerable]
     latencies = [float(r.latency_ms) for r in results] or [0.0]
 
+    conditional = [r for r in results if r.conditional]
+    # Conditional questions are excluded from both binary rates: neither answering nor
+    # abstaining is wrong when the honest response is "it depends".
+    binary_answerable = [r for r in answerable if not r.conditional]
+
     generated = [r for r in results if r.abstained is not None]
     false_answer = false_abstention = tokens_per_100q = None
     if generated:
         bad_answers = [r for r in generated if not r.answerable and r.abstained is False]
-        bad_abstentions = [r for r in generated if r.answerable and r.abstained is True]
+        bad_abstentions = [
+            r for r in generated if r.answerable and not r.conditional and r.abstained is True
+        ]
         if unanswerable:
             false_answer = len(bad_answers) / len(unanswerable)
-        if answerable:
-            false_abstention = len(bad_abstentions) / len(answerable)
+        if binary_answerable:
+            false_abstention = len(bad_abstentions) / len(binary_answerable)
         total_tokens = sum(r.tokens for r in generated)
         tokens_per_100q = round(total_tokens / len(generated) * 100)
+
+    conditional_coverage = (
+        _mean([1.0 if r.conditions_covered else 0.0 for r in conditional]) if conditional else None
+    )
 
     return RunMetrics(
         name=name,
@@ -156,5 +188,6 @@ def aggregate(name: str, k: int, results: list[QuestionResult]) -> RunMetrics:
         false_answer_rate=false_answer,
         false_abstention_rate=false_abstention,
         tokens_per_100q=tokens_per_100q,
+        conditional_coverage=conditional_coverage,
         per_question=results,
     )

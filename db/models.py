@@ -176,12 +176,22 @@ class Chunk(Base, TimestampMixin):
         Computed("to_tsvector('english', text)", persisted=True),
         nullable=True,
     )
+    # The same, over the section path alone. This is the signal that separates a clause
+    # from the definition of the term it uses -- the two share almost all their body
+    # vocabulary, which is why every phase-2 configuration returned the definition of
+    # "pre-existing disease" above the waiting period for one.
+    section_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', section_path)", persisted=True),
+        nullable=True,
+    )
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 
     __table_args__ = (
         Index("ix_chunks_tenant_policy", "tenant_id", "policy_id"),
         Index("ix_chunks_text_tsv", "text_tsv", postgresql_using="gin"),
+        Index("ix_chunks_section_tsv", "section_tsv", postgresql_using="gin"),
         # Still no ANN index on `embedding`. Exact vector search is correct by
         # construction and fast enough at MVP size, and every query here is filtered,
         # which is exactly the case where ANN pre-filtering loses recall (plan.md §2.4).

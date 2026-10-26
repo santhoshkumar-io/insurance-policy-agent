@@ -15,6 +15,15 @@ from rag.evaluation.dataset import EvalSet
 from rag.evaluation.metrics import RunMetrics
 
 EXPERIMENTS_PATH = Path("docs/experiments.md")
+# The headline benchmark owns docs/experiments.md; other suites get their own file so a
+# regression run cannot overwrite the reported numbers.
+HEADLINE_SET = "lic-real"
+
+
+def path_for(set_name: str) -> Path:
+    if set_name == HEADLINE_SET:
+        return EXPERIMENTS_PATH
+    return EXPERIMENTS_PATH.with_name(f"experiments-{set_name}.md")
 
 # Everything between these markers is regenerated; everything outside is hand-written
 # and preserved. Without this, each run would wipe the written analysis -- and the
@@ -30,6 +39,7 @@ COLUMNS = [
     ("section", "Section acc."),
     ("false answer", "False answer"),
     ("false abstain", "False abstain"),
+    ("cond. coverage", "Cond. coverage"),
     ("p50 ms", "p50 ms"),
     ("tokens/100q", "Tokens/100q"),
 ]
@@ -88,6 +98,10 @@ def render(runs: list[RunMetrics], eval_set: EvalSet, k: int) -> str:
         "- Postgres full-text ranking is `ts_rank_cd`, **not BM25**. The `bm25` row is "
         "real BM25 (`rank_bm25`, in memory) so the comparison is measured rather than "
         "asserted.",
+        "- **Cond. coverage** applies to questions whose honest answer is conditional. "
+        "They are excluded from the two rates above -- neither answering nor abstaining "
+        "is wrong when the document holds several competing conditions -- and scored "
+        "instead on whether *every* condition reached the model.",
         "- Per-question output for every row is in `evals/results/`.",
         "",
     ]
@@ -135,16 +149,17 @@ def _warnings(runs: list[RunMetrics], k: int) -> list[str]:
 
 def write(runs: list[RunMetrics], eval_set: EvalSet, k: int) -> Path:
     """Replace the generated block, preserving hand-written analysis around it."""
-    EXPERIMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    target = path_for(eval_set.set_name)
+    target.parent.mkdir(parents=True, exist_ok=True)
     generated = f"{BEGIN}\n\n{render(runs, eval_set, k)}\n{END}"
 
-    if EXPERIMENTS_PATH.exists():
-        existing = EXPERIMENTS_PATH.read_text()
+    if target.exists():
+        existing = target.read_text()
         if BEGIN in existing and END in existing:
             head = existing[: existing.index(BEGIN)]
             tail = existing[existing.index(END) + len(END) :]
-            EXPERIMENTS_PATH.write_text(head + generated + tail)
-            return EXPERIMENTS_PATH
+            target.write_text(head + generated + tail)
+            return target
 
-    EXPERIMENTS_PATH.write_text(generated + "\n")
-    return EXPERIMENTS_PATH
+    target.write_text(generated + "\n")
+    return target

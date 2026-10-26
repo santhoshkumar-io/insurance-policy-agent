@@ -1,0 +1,495 @@
+# The headline benchmark: real IRDAI-filed LIC policy wordings.
+#
+# Two documents, 17 pages each, ~53 chunks each:
+#   lic-digi-term      LIC's Digi Term (UIN 512N356V02) -- pure risk, Option I/II
+#   lic-jeevan-raksha  LIC's Jeevan Raksha              -- pure risk, Accident Benefit Rider
+#
+# Every label below was verified by reading the extracted text of the relevant chunk.
+# Nothing here came from a model unchecked, and anything that could not be confirmed
+# against the source was dropped rather than guessed.
+#
+# WHY THESE TWO DOCUMENTS ARE A HARD TEST
+#
+# They are near-identical in substance -- both LIC pure-risk plans carrying the same
+# standard clauses with the same numbers (30-day grace period, five-year revival period,
+# no surrender value, no maturity benefit, 80% suicide refund). That makes them the worst
+# case for the risk the brief names: "mixing clauses from different products". When both
+# documents contain a matching clause, citing the right one is not helped by the wording
+# at all. The cross-product questions below test document attribution, not differing
+# answers.
+#
+# Where they genuinely differ is the death benefit definition and the optional benefits,
+# and those differences are deliberately adjacent in vocabulary:
+#   Digi Term     Sum Assured on Death = HIGHEST of 7x annualised premium / 105% of total
+#                 premiums paid / absolute amount assured; plus Option I and Option II
+#   Jeevan Raksha Sum Assured on Death = HIGHER of 7x annualized premium / Basic Sum
+#                 Assured, floored at 105% of total premiums paid; plus Accident Benefit Rider
+#
+# A NOTE ON PAGE-LEVEL LABELS
+#
+# Evidence is labelled by page so labels survive re-chunking. These documents carry
+# several chunks per page, so page matching is coarser here than on the synthetic set --
+# `expected_section` is the precision signal and `section_hit` the metric that uses it.
+
+version: 1
+set_name: lic-real
+
+questions:
+  # ------------------------------------------------- premium payment and grace (shared)
+  - id: L001
+    question: "What is the grace period for paying premiums?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Maturity Benefit: B)"
+    gold_answer: "30 days for yearly or half-yearly premiums, from the date of First Unpaid Premium."
+    notes: >
+      Cross-product: both documents say 30 days. The answer is not what distinguishes
+      them, so the citation must.
+
+  - id: L002
+    question: "What is the grace period for paying premiums?"
+    policy: lic-jeevan-raksha
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Rider Benefit: 2."
+    gold_answer: "30 days for yearly or half-yearly premiums, from the date of First Unpaid Premium."
+    notes: "The same question as L001 against the other product. Must cite this document."
+
+  - id: L003
+    question: "What happens to the policy if the premium is not paid within the days of grace?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [8]
+    expected_section: "2. Forfeiture and Non-forfeiture Regulations: > Forfeiture Regulations:"
+    gold_answer: "The policy lapses; all benefits cease after the grace period expires and premiums paid are not refundable."
+
+  - id: L004
+    question: "If the life assured dies during the grace period before paying the premium due, is the claim still valid?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Maturity Benefit: B)"
+    gold_answer: "Yes. The policy remains valid and benefits are paid after deducting the unpaid premium and any balance premiums falling due before the next policy anniversary."
+    notes: "The exception inside the grace-period clause, not the headline number."
+
+  # ----------------------------------------------------------- revival (adjacent trap)
+  - id: L005
+    question: "How long is the revival period?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [6]
+    expected_section: "PART– B: DEFINITIONS"
+    gold_answer: "Five consecutive complete years from the date of First Unpaid Premium."
+
+  - id: L006
+    question: "What interest rate applies when reviving a lapsed policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [8]
+    expected_section: "2. Forfeiture and Non-forfeiture Regulations: > Non –forfeiture Regulations:"
+    gold_answer: "9.50% p.a. compounding half-yearly for the 12 months from 1 May 2024 to 30 April 2025; the formula caps it at the 10-year G-Sec yield plus 3%, or the Non-Linked Non-Participating Fund yield plus 1%, whichever is higher."
+    notes: >
+      Adjacent trap against L005: both live in the revival discussion and share its
+      vocabulary, but one is a duration in PART B and the other a rate in PART D.
+
+  - id: L007
+    question: "What happens if a lapsed policy is never revived?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [8]
+    expected_section: "2. Forfeiture and Non-forfeiture Regulations: > Non –forfeiture Regulations:"
+    gold_answer: "The policy terminates automatically. Under Regular Premium policies nothing is payable; under Limited Premium Payment policies the Unexpired Risk Premium Value, if any, is paid."
+
+  - id: L008
+    question: "Can a rider be revived on its own without reviving the base policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "2. Forfeiture and Non-forfeiture Regulations: > Non –forfeiture Regulations:"
+    gold_answer: "No. Revival of a rider is only considered along with revival of the base policy, not in isolation."
+
+  # --------------------------------------------- death benefit (the real product difference)
+  - id: L009
+    question: "How is the sum assured on death calculated for a regular premium policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Death Benefit: A)"
+    gold_answer: "The highest of 7 times the annualised premium, 105% of total premiums paid up to the date of death, or the absolute amount assured to be paid on death."
+    notes: "Highest-of-three. Jeevan Raksha uses higher-of-two (L010) -- the real difference."
+
+  - id: L010
+    question: "How is the sum assured on death calculated for a regular premium policy?"
+    policy: lic-jeevan-raksha
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Death Benefit: A)"
+    gold_answer: "The higher of 7 times the annualized premium or the Basic Sum Assured, and in any case not less than 105% of total premiums paid up to the date of death."
+    notes: >
+      Same question as L009 with a genuinely different answer. Blending the two products
+      here produces a wrong answer that still looks well-cited.
+
+  - id: L011
+    question: "What is the sum assured on death under a single premium policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Death Benefit: A)"
+    gold_answer: "The higher of 125% of the single premium or the absolute amount assured to be paid on death."
+
+  - id: L012
+    question: "Is any maturity benefit payable if the life assured survives the policy term?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Maturity Benefit: B)"
+    gold_answer: "No. No maturity benefit is payable on surviving the stipulated Date of Maturity."
+
+  # ----------------------------------------- options unique to Digi Term (attribution)
+  - id: L013
+    question: "Does the death benefit increase over the policy term?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Option II: Increasing Sum Assured"
+    gold_answer: "Under Option II it does: it stays at the Basic Sum Assured until the fifth policy year, then increases by 10% of the Basic Sum Assured each year from the sixth to the fifteenth year until it reaches twice the Basic Sum Assured, staying constant thereafter."
+
+  - id: L014
+    question: "What is Option I under this policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Option I: Level Sum Assured"
+    gold_answer: "Level Sum Assured -- the absolute amount assured on death equals the Basic Sum Assured and stays the same throughout the policy term."
+
+  - id: L015
+    question: "Can the death benefit option be changed after the policy is issued?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Option II: Increasing Sum Assured"
+    gold_answer: "No. The death benefit option once chosen cannot be changed later."
+
+  - id: L016
+    question: "Is there an option for the sum assured to increase each year?"
+    policy: lic-jeevan-raksha
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      Attribution test. Increasing Sum Assured is a Digi Term option and does not exist
+      in Jeevan Raksha. Retrieving the Digi Term clause and answering yes is exactly the
+      cross-product failure the brief warns about, so the correct behaviour here is to
+      abstain.
+
+  # --------------------------------- rider unique to Jeevan Raksha (attribution)
+  - id: L017
+    question: "What optional rider is available under this policy?"
+    policy: lic-jeevan-raksha
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Rider Benefit: 2."
+    gold_answer: "LIC's Accident Benefit Rider, available under Regular Premium and Limited Premium payment policies on payment of additional premium."
+
+  - id: L018
+    question: "Until what age can the accident benefit rider be opted for?"
+    policy: lic-jeevan-raksha
+    answerable: true
+    expected_pages: [7]
+    expected_section: "PART– C: BENEFITS > Rider Benefit: 2."
+    gold_answer: "Before the policy anniversary on which the age nearer birthday of the life assured is 55 years, and provided the outstanding premium paying term of both base policy and rider is at least five years."
+    notes: "Two conditions in one clause; answering only the age is incomplete."
+
+  # ------------------------------------------------------------------ surrender and loan
+  - id: L019
+    question: "What surrender value is available under this plan?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 4. Surrender:"
+    gold_answer: "None. No surrender value is available; only an Unexpired Risk Premium Value, if any, may be payable in specified cases."
+    notes: "A 'no' answer that a model is tempted to soften into a formula."
+
+  - id: L020
+    question: "If I surrender a regular premium policy, what do I get back?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 4. Surrender:"
+    gold_answer: "Nothing shall be payable under Regular Premium policies."
+
+  - id: L021
+    question: "How many years of premiums must be paid before a limited premium policy has any surrender value?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "4. Surrender: > c) Limited Premium Payment:"
+    gold_answer: "At least three consecutive years of full premiums."
+
+  - id: L022
+    question: "What is the value of K used in the unexpired risk premium value formula during the second policy year?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "4. Surrender: > b) Single Premium Policies::"
+    gold_answer: "80%. K is 75% in the first policy year, 80% in the second, 85% in the third and 90% thereafter."
+    notes: "Literal lookup inside a formula definition -- the keyword arm's case."
+
+  - id: L023
+    question: "Can I take a loan against this policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [9]
+    expected_section: "4. Surrender: > c) Limited Premium Payment:"
+    gold_answer: "No. No loan will be available under this policy."
+    notes: >
+      The answer is a single sentence buried at the end of a long surrender formula
+      section, with no heading of its own.
+
+  # ------------------------------------------------------------- suicide and exclusions
+  - id: L024
+    question: "What is payable if the life assured dies by suicide in the first year?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "2. Suicide Exclusion: > Under Regular /Limited Premium Payment policy:"
+    gold_answer: "80% of total premiums paid, excluding extra premium, rider premium and taxes, provided the policy is in force. The clause applies to suicide within 12 months of commencement of risk or of revival."
+
+  - id: L025
+    question: "Does the suicide clause apply to a lapsed policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "2. Suicide Exclusion: > Under Regular /Limited Premium Payment policy:"
+    gold_answer: "No. The clause does not apply to a lapsed policy because nothing is payable under such policies."
+
+  # ---------------------------------------------- instalment option and its table
+  - id: L026
+    question: "Over what periods can the death benefit be taken in instalments?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [10]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 8. Option to take Death Benefit in instalments:"
+    gold_answer: "Over 5, 10 or 15 years, instead of a lump sum, under an in-force policy."
+
+  - id: L027
+    question: "What is the minimum monthly instalment amount for the death benefit instalment option?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 8. Option to take Death Benefit in instalments:"
+    gold_answer: "Rs. 5,000 per month."
+    notes: "Answer exists only in the minimum-instalment table."
+
+  - id: L028
+    question: "What is the minimum yearly instalment amount?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 8. Option to take Death Benefit in instalments:"
+    gold_answer: "Rs. 50,000 per year."
+    notes: "Adjacent row to L027. Tests row-level precision within one table chunk."
+
+  - id: L029
+    question: "What happens if the net claim amount is too small for the chosen instalment mode?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [10]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 8. Option to take Death Benefit in instalments:"
+    gold_answer: "The claim proceeds are paid in lump sum only."
+
+  # ----------------------------------------------------- literal lookups and statutes
+  - id: L030
+    question: "What is the UIN of this plan?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [1]
+    expected_section: null
+    gold_answer: "512N356V02."
+    notes: "Pure literal lookup -- vector search is weakest on exact alphanumeric tokens."
+
+  - id: L031
+    question: "After how many years can a life insurance policy no longer be called in question under Section 45?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [16]
+    expected_section: "PART – G: STATUTORY PROVISIONS > Annexure 3"
+    gold_answer: "Three years from the date of issuance, commencement of risk, revival or the rider, whichever is later."
+
+  - id: L032
+    question: "Which section of the Insurance Act governs assignment of the policy?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 1. a) Assignments:"
+    gold_answer: "Section 38 of the Insurance Act, 1938, as amended from time to time."
+    notes: >
+      Adjacent trap: Section 38 is assignment, Section 39 nomination, Section 45
+      repudiation. All three appear throughout the document in near-identical phrasing.
+
+  - id: L033
+    question: "Which section of the Insurance Act governs nomination?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [11]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 1. a) Assignments: > b) Nominations:"
+    gold_answer: "Section 39 of the Insurance Act, 1938, as amended from time to time."
+    notes: "Deliberately adjacent to L032."
+
+  - id: L034
+    question: "How much does a duplicate policy document cost?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [12]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 7. Issuance of Duplicate Policy:"
+    gold_answer: "Rs. 75.00 as on January 2024, plus stamp charges, applicable taxes and a notarised indemnity bond."
+
+  - id: L035
+    question: "How long should I wait for a response before approaching IRDAI with a complaint?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [12]
+    expected_section: "PART – G: STATUTORY PROVISIONS > Grievance Redressal Mechanism:"
+    gold_answer: "15 days. If there is no response or the response is unsatisfactory within 15 days, the customer may approach IRDAI's Policyholder's Protection and Grievance Redressal Department."
+
+  - id: L036
+    question: "Which law governs this policy and which courts have jurisdiction?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [12]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 8. Governing Law and Jurisdiction:"
+    gold_answer: "The laws of India, with Indian courts having jurisdiction over disputes."
+
+  - id: L037
+    question: "How long is the free look period?"
+    policy: lic-digi-term
+    answerable: true
+    expected_pages: [10]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 7. Free look period:"
+    gold_answer: "30 days from the date of receipt of the policy document in electronic or physical form, whichever is earlier."
+    notes: >
+      Stated three times in this document -- the cover letter, definition 20, and
+      condition 7 of Part D. Any of them is a defensible citation; the definition and the
+      condition are the better ones.
+
+  # ---------------------------------------------------------------- conditional answers
+  - id: L038
+    question: "Will my nominee receive the full sum assured if I die during the policy term?"
+    policy: lic-digi-term
+    answerable: conditional
+    expected_pages: [7, 11]
+    expected_section: "PART– C: BENEFITS > Death Benefit: A)"
+    gold_answer: null
+    notes: >
+      Conditional. Depends on the policy being in force, on whether death was by suicide
+      within 12 months (80% of premiums instead), and on whether age was mis-stated. A
+      flat yes is wrong even with a correct citation; the right response surfaces the
+      conditions. Scored on whether both pages reached the model.
+
+  - id: L039
+    question: "If I stop paying premiums, can I get any money back?"
+    policy: lic-digi-term
+    answerable: conditional
+    expected_pages: [8, 9]
+    expected_section: "PART – D: CONDITIONS RELATED TO SERVICING ASPECTS > 4. Surrender:"
+    gold_answer: null
+    notes: >
+      Conditional on premium type: nothing under Regular Premium, Unexpired Risk Premium
+      Value under Single Premium, and under Limited Premium only after three years of
+      full premiums. Forfeiture on page 8 governs what happens first.
+
+  - id: L040
+    question: "What should my family do to claim after my death?"
+    policy: lic-digi-term
+    answerable: conditional
+    expected_pages: [12, 13]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 4. Normal requirements for a claim:"
+    gold_answer: null
+    notes: >
+      Conditional on cause of death: the standard document list always applies, and
+      unnatural or accidental death additionally requires FIR, Panchnama and post-mortem
+      report. Page 13 carries the grievance route if the claim is repudiated.
+
+  # ------------------------------------------------------- not in either document
+  - id: L041
+    question: "What is the annual premium for a 35-year-old for a sum assured of 50 lakhs?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      Premium rates are not in the wording -- the Schedule is a blank template and the
+      tabular premium is referenced only as a symbol in formulas. Must abstain.
+
+  - id: L042
+    question: "Is maternity or dental treatment covered?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      Health-insurance concepts applied to a pure-risk life policy. Nothing in the
+      document addresses them, and a model that pattern-matches "covered?" to an
+      exclusions list will invent an answer.
+
+  - id: L043
+    question: "What rate of GST applies to the premium?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      The tax clause says statutory taxes apply "as per the tax laws and the rate of tax
+      as applicable from time to time" and states no rate. Quoting a rate would be
+      invention; the clause exists but does not answer the question.
+
+  - id: L044
+    question: "What is the postal address of the insurance ombudsman for my city?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      The document has a placeholder label for the ombudsman address with no address
+      filled in. A tempting near-miss: the grievance section is full of contact details.
+
+  - id: L045
+    question: "What is the minimum entry age and maximum policy term for this plan?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      Eligibility conditions are in the sales literature, not the policy wording. Policy
+      Term is defined as a concept and recorded in the Schedule, but no limits are given.
+
+  - id: L046
+    question: "Can I convert this term policy into an endowment or money-back plan later?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      No conversion or alteration provision exists in this wording. Part D covers
+      servicing aspects at length, so a model looking for "can I change my policy" has
+      plausible-looking material to latch onto.
+
+  - id: L047
+    question: "Within how many days must LIC settle a death claim?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      No settlement timeline is stated. The ombudsman section refers to "delay in
+      settlement of claims, beyond the time specified in the regulations" without
+      specifying it, which is a near-miss a model may read as an answer.

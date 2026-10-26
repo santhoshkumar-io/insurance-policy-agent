@@ -208,6 +208,129 @@ def build_injected_policy(path: Path) -> Path:
     return path
 
 
+def build_lic_shaped_policy(path: Path) -> Path:
+    """A document shaped like a real IRDAI-filed wording.
+
+    The real LIC PDFs cannot be committed, so this reproduces the structural traps they
+    exposed, each of which defeated the chunker that passed against the clean fixture:
+
+    * headings at the **same point size as body text**, bold being the only cue;
+    * a ``PART A..G`` backbone, which is the only reliable structure signal as a result;
+    * numbered definition entries ("18. Endorsement means ...") that look like numbered
+      headings but are body text;
+    * bold emphasis *inside* ordinary sentences;
+    * a bare page number in the footer, differing on every page so identical-text
+      furniture detection cannot catch it;
+    * ASCII hyphens in the PART headings, because Helvetica cannot encode the en dash the
+      real documents use -- the dash variants are covered by a regex unit test;
+    * a lower-case "Part C of this Policy Document." cross-reference that must not be
+      mistaken for a PART heading.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    size = BODY  # deliberately identical for headings and body
+
+    # Page 1 -- PART A
+    page = doc.new_page()
+    y = 70
+    y = _write(page, y, "LIFE ASSURANCE CORPORATION", size, bold=True)
+    y = _write(
+        page, y, "(A Non-Par, Non-Linked, Life, Individual, Pure Risk Plan)", size, bold=True
+    )
+    y = _write(page, y + 8, "PART- A", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "This policy is issued subject to the terms described herein. The benefits "
+        "payable are set out in Part C of this Policy Document.",
+    )
+    y = _write(page, y + 10, "Free Look Period", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "If you are not satisfied with the terms of this policy you may return it within "
+        "thirty days from the date of receipt of the policy document.",
+    )
+    _write(page, 800, "1", 8.0)
+
+    # Page 2 -- PART B, numbered definitions that must not become headings
+    page = doc.new_page()
+    y = 70
+    y = _write(page, y, "PART- B: DEFINITIONS", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 6,
+        "18. Endorsement means conditions attached or affixed to this Policy "
+        "incorporating any additions, amendments or alterations agreed between the "
+        "parties and recorded in writing by the Corporation.",
+    )
+    y = _paragraph(
+        page,
+        y + 6,
+        "28. Material information shall mean all important, essential and relevant "
+        "information and documents explicitly sought by the Corporation in the proposal "
+        "form and other connected documents.",
+    )
+    y = _paragraph(
+        page,
+        y + 6,
+        "35. Policyholder is the legal owner of this policy and the person entitled to "
+        "exercise all rights and privileges under it.",
+    )
+    _write(page, 800, "2", 8.0)
+
+    # Page 3 -- PART D, numbered clause headings that must stay under their PART
+    page = doc.new_page()
+    y = 70
+    y = _write(page, y, "PART - D: CONDITIONS RELATED TO SERVICING ASPECTS", size, bold=True)
+    y = _write(page, y + 6, "1. Proof of Age:", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "This policy is issued on the basis of the age declared in the proposal. The "
+        "Corporation may call for proof of age at any time before settlement.",
+    )
+    y = _write(page, y + 10, "4. Surrender:", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "The policy may be surrendered after completion of two policy years provided "
+        "premiums have been paid for at least two consecutive years.",
+    )
+    y = _write(page, y + 8, "b) Single Premium Policies:", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "The surrender value payable shall be ninety per cent of the single premium paid "
+        "excluding any extra premium and taxes.",
+    )
+    y = _write(page, y + 10, "7. Grace period:", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 4,
+        "A grace period of thirty days is allowed for payment of yearly, half-yearly or "
+        "quarterly premiums and fifteen days for monthly premiums.",
+    )
+    _write(page, 800, "3", 8.0)
+
+    # Page 4 -- PART G, statutory wording with an uppercase run and a UIN
+    page = doc.new_page()
+    y = 70
+    y = _write(page, y, "PART - G: STATUTORY PROVISIONS", size, bold=True)
+    y = _paragraph(
+        page,
+        y + 6,
+        "Section 45 as per the Insurance Act 1938 as amended from time to time shall "
+        "apply to this policy. The Unique Identification Number allotted to this plan is "
+        "512N356V02 and must be quoted in all correspondence.",
+    )
+    _write(page, 800, "4", 8.0)
+
+    doc.save(path)
+    doc.close()
+    return path
+
+
 if __name__ == "__main__":
     target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("samples/acme-health-guard.pdf")
     target.parent.mkdir(parents=True, exist_ok=True)
