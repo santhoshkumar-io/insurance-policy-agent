@@ -630,3 +630,101 @@ middleware.
 
 **Reverses if.** Real authentication lands, at which point the origin list and the
 credential policy both need revisiting together.
+
+---
+
+## 2026-10-26 — Uploaded PDFs are stored in Postgres, not on the filesystem
+
+**Decision.** `documents.content` holds the file. `rag/storage.py` owns reading and
+writing it; `storage_path` survives as a fallback for rows written before this and for
+CLI ingests of a file already on the machine.
+
+**Why it had to change.** The API wrote uploads to `storage_dir/<tenant>/<checksum>.pdf`
+and recorded the path. On a host with an ephemeral filesystem — which is every managed
+container platform — the database survives a redeploy and the files do not. The failure
+is quiet: the library still lists the document, chat still answers from the chunks, and
+only `policy reindex` fails, which is to say the failure appears the first time the
+chunker improves. `tests/test_storage.py` now deletes the file and re-indexes, so the
+case is reproduced rather than described.
+
+**Why not object storage.** R2 or Supabase Storage is the textbook answer and the right
+one at scale. At this size it is a second service to provision, a second set of
+credentials to leak, and a second thing to be down — for ~1MB files whose total is
+measured in megabytes. Bytes in the row give transactional consistency with the document
+they describe, and backups cover both.
+
+**What it costs.** `bytea` is TOASTed and compressed, so this is sound for a few hundred
+documents and wrong in the tens of GB: the database starts paying for storage it is bad
+at and backups slow down. The other cost is quieter — `SELECT *` on `documents` now drags
+the PDF with it, so queries that do not need the file must name their columns.
+
+**Reverses if.** The corpus reaches the low thousands of documents or a single wording
+exceeds a few MB. The two functions in `rag/storage.py` are the entire surface that has
+to change.
+
+---
+
+## 2026-10-26 — The deployed demo is open, with ceilings instead of a login
+
+**Decision.** No authentication on the deployed instance. Two limits instead: a per-IP
+sliding window and a global daily cap on answered questions.
+
+**Why open.** The point of deploying is that someone who has never seen the repository
+can click a link and watch the system work. A passphrase defeats that for the only
+audience this demo has. The isolation *mechanism* is real and tested — including in the
+BM25 cache key, where a miss would serve one tenant's index to another — so what is
+missing is the identification of the principal, not the boundary.
+
+**Why two limits, not one.** They fail differently. The per-IP window is held in process,
+so it is per worker and approximate; being wrong lets a burst through, which is
+survivable. The daily cap is counted from the `messages` table because an in-process
+counter resets on every restart and is per worker, so N workers would authorise N times
+the intended spend. The table is shared state that already records exactly the thing
+being capped.
+
+**The honest hole.** `X-Forwarded-For` is caller-controlled, so the per-IP window is
+evadable by anyone who rotates it. That is why the daily cap exists and why it is counted
+in the database: the evadable limit protects responsiveness, the unevadable one protects
+the bill.
+
+**Reverses if.** The demo attracts enough traffic to exhaust the cap daily, at which
+point the answer is real authentication rather than a bigger number.
+
+---
+
+## 2026-10-26 — `/health` stays shallow and `/ready` checks the database
+
+**Decision.** Two probes. `/health` returns a constant; `/ready` runs `SELECT 1`.
+
+**Why they must differ.** A liveness probe that touches the database restarts a perfectly
+healthy API every time the database hiccups, turning a brief outage into a crash loop. A
+readiness probe that does not touch it reports green while every request returns 500.
+Load balancers route on readiness; supervisors restart on liveness, and conflating them
+gets one of the two wrong by construction.
+
+`SELECT 1` rather than a TCP check, because it also proves the pool can hand out a
+connection — the failure mode where the host resolves and the connection limit is
+exhausted looks identical from the outside otherwise.
+
+---
+
+## 2026-10-26 — Generation metrics get `--repeats`; a single pass states no spread
+
+**Decision.** `--repeats N` runs the generation pass N times per question against the same
+retrieved evidence and reports the mean rate with half the range across passes. Retrieval
+runs once. The default stays 1, and a single-pass report now says in the generated block
+that its abstention columns carry no spread.
+
+**Why.** Finding 7 measured `L048` answering 5 times and abstaining 5 out of 10, at
+temperature 0, from identical evidence. Phase 6's target is the answerability judgement —
+so every number that will be used to judge that work moves by more than the effect being
+measured. Shipping the fix first and the measurement afterwards would mean grading it
+against a coin.
+
+**Why half the range, not a standard deviation.** The sample is three to ten passes. "The
+rate landed anywhere in this band" is the claim that size of sample can support.
+
+**Why the rate is averaged over passes rather than over questions.** Averaging each
+question's outcomes first reports the same mean with no spread, and hides a configuration
+that fails a *different* question on every pass — which is a different and worse defect
+than one unstable question. `tests/test_repeats.py` pins exactly that case.

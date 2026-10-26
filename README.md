@@ -42,11 +42,16 @@ decisions taken in response — is in [plan.md](plan.md).
 | Candidate question drafting for the benchmark | ✅ |
 | Structure-aware chunking of real IRDAI-filed wordings | ✅ |
 | Next.js dashboard: upload, library, ask, citation panel | ✅ |
+| PDFs stored in Postgres, so documents survive a redeploy | ✅ |
+| Docker image, migrations and demo seeding on boot | ✅ |
+| CI: lint, unit tests, and the db suite against pgvector | ✅ |
+| Rate limits and a daily cap for an open demo | ✅ |
+| Repeated-run generation metrics (`--repeats`, with a spread) | ✅ |
 | BM25 inside Postgres (ParadeDB `pg_search`) | ruled out — unavailable on managed Postgres |
 | OCR for scanned pages | not needed — both real documents extract cleanly |
 | Answerability judgement in generation | **the next target** — see the benchmark section |
 | Policy comparison | phase 5 |
-| Real auth, tracing | phase 5 |
+| Real auth, tracing | phase 6 |
 | Docker deploy, CI | phase 6 |
 
 ---
@@ -79,6 +84,12 @@ Or run the API:
 
 ```bash
 uvicorn services.api.main:app --reload    # docs at http://127.0.0.1:8000/docs
+```
+
+Or run the whole system in containers, which is what gets deployed:
+
+```bash
+docker compose up --build                 # migrates, seeds a demo policy, serves on :8000
 ```
 
 ---
@@ -209,6 +220,31 @@ the build was happy with.
 
 ---
 
+## Deploying it
+
+Neon (Postgres + pgvector), Render (the API's `Dockerfile`), Vercel (the dashboard).
+Step by step in [docs/deployment.md](docs/deployment.md).
+
+Two things in that setup are decisions rather than configuration.
+
+**Uploaded PDFs are stored in Postgres**, not on disk. The API used to write them to a
+local directory, which works on a laptop and fails on every managed container platform:
+the database survives a redeploy and the filesystem does not. The failure is quiet —
+the library still lists the document and chat still answers from the chunks, and only
+`policy reindex` breaks, which is to say the failure surfaces the first time the chunker
+improves. `tests/test_storage.py` deletes the file and re-indexes, so the case is
+reproduced rather than described. This is right for ~1MB wordings and wrong in the tens
+of GB; the trigger to move to object storage is written down, and `rag/storage.py` is the
+entire surface that would change.
+
+**The demo is open, with ceilings instead of a login.** A per-IP sliding window held in
+process, and a global daily cap counted from the `messages` table — because an in-process
+counter resets on restart and is per worker, so N workers would authorise N times the
+intended spend. `X-Forwarded-For` is caller-controlled and therefore evadable, which is
+exactly why the limit that protects the bill lives in the database rather than in memory.
+
+---
+
 ## How a question is answered
 
 ```
@@ -325,6 +361,13 @@ surgery after six months?"* depends on facts the question does not supply, so th
 entirely defensible abstention was counted as an error. Conditional questions leave both
 binary rates and are scored on whether **every** competing condition reached the model.
 
+**Generation metrics are repeated, retrieval metrics are not.** `--repeats N` runs the
+generation pass N times per question against the same retrieved evidence and reports the
+mean rate with half the range across passes. One benchmark question was measured
+answering 5 times and abstaining 5 out of 10 — at temperature 0, from identical evidence
+— so a single pass cannot distinguish a real improvement from the coin landing
+differently. Retrieval runs once, because it is deterministic.
+
 Two rules this project holds itself to: every experiment runs against the same frozen
 set, and **the rows that lost stay in the table**. No accuracy figure appears in this
 README that `policy experiments` did not produce.
@@ -394,9 +437,13 @@ docs/                    decisions, experiments, sample-data provenance
   against the set. It is at least now applied to a stable scale — see the score-scale
   entry in `docs/decisions.md`.
 - No ANN index on embeddings. Correct and fast at ~100 chunks; revisit at a few thousand.
-- Single stubbed tenant. The isolation mechanism is real and tested — including in the
-  BM25 cache key, where a miss would serve one tenant's index to another — but the
-  authentication in front of it is not built, and the dashboard has no sign-in.
+- Single stubbed tenant, and the deployed demo is **open on purpose**. The isolation
+  mechanism is real and tested — including in the BM25 cache key, where a miss would
+  serve one tenant's index to another — but the authentication in front of it is not
+  built, and the dashboard has no sign-in. A per-IP window and a global daily cap stand
+  in for it, and the per-IP half is evadable by anyone who rotates `X-Forwarded-For`.
+- PDFs live in a `bytea` column. Correct at this size, wrong in the tens of GB, and
+  `SELECT *` on `documents` now carries the file with it.
 - The dashboard has no automated test in CI. `npm run smoke` is a real browser check but
   needs a live API, a database and a key, so nothing guards the UI on a pull request.
 - **This system is not a claims authority.** It describes what policy wording says.

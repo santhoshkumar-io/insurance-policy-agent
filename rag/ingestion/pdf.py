@@ -65,7 +65,8 @@ class Page:
 
 @dataclass
 class ExtractedDocument:
-    path: Path
+    # None when the document was extracted from bytes, which is the deployed path.
+    path: Path | None
     page_count: int
     pages: list[Page]
     checksum: str
@@ -242,13 +243,28 @@ def _strip_running_headers(pages: list[Page], min_fraction: float = 0.6) -> None
         page.spans = [s for s in page.spans if keep(s)]
 
 
-def extract_document(path: str | Path, max_pages: int = 600) -> ExtractedDocument:
-    path = Path(path)
-    doc = fitz.open(path)
+def extract_document(source: str | Path | bytes, max_pages: int = 600) -> ExtractedDocument:
+    """Extract one PDF, from a path or from its bytes.
+
+    The bytes form is what the deployed path uses: documents are stored in the database
+    (see ``rag/storage.py``), so there is no file to open. Tests and the CLI still pass
+    paths, which is why both are accepted here rather than forcing every caller to read
+    a file into memory first.
+    """
+    if isinstance(source, bytes | bytearray):
+        data = bytes(source)
+        path, name = None, "<uploaded document>"
+        checksum = hashlib.sha256(data).hexdigest()
+        doc = fitz.open(stream=data, filetype="pdf")
+    else:
+        path = Path(source)
+        name = path.name
+        checksum = file_checksum(path)
+        doc = fitz.open(path)
     try:
         if doc.page_count > max_pages:
             raise ValueError(
-                f"{path.name} has {doc.page_count} pages, above the {max_pages}-page limit"
+                f"{name} has {doc.page_count} pages, above the {max_pages}-page limit"
             )
 
         pages: list[Page] = []
@@ -285,7 +301,7 @@ def extract_document(path: str | Path, max_pages: int = 600) -> ExtractedDocumen
             path=path,
             page_count=doc.page_count,
             pages=pages,
-            checksum=file_checksum(path),
+            checksum=checksum,
             low_text_pages=[p.number for p in pages if p.char_count < 50],
         )
     finally:

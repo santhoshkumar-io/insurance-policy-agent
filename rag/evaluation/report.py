@@ -76,6 +76,21 @@ def render(runs: list[RunMetrics], eval_set: EvalSet, k: int) -> str:
             "columns are empty. Run `policy experiments --generate` to fill them.",
             "",
         ]
+    elif first is not None and first.repeats > 1:
+        lines += [
+            f"Generation ran **{first.repeats} times per question** against the same "
+            f"retrieved evidence; the abstention columns show the mean rate and half the "
+            f"range across those passes. Retrieval ran once, because it is deterministic.",
+            "",
+        ]
+    elif first is not None:
+        lines += [
+            "Generation ran **once per question**, so the abstention columns carry no "
+            "spread. They are not deterministic: one benchmark question was measured "
+            "answering 5 times and abstaining 5 out of 10. Use `--repeats` before "
+            "comparing these two columns between runs.",
+            "",
+        ]
 
     lines.append("| " + " | ".join(label for _, label in COLUMNS) + " |")
     lines.append("|" + "|".join("---" for _ in COLUMNS) + "|")

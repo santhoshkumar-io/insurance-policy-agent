@@ -1,0 +1,92 @@
+name: CI
+
+# Nothing ran these 190 tests on a push until now. A suite that only runs when someone
+# remembers to run it is a suite that is quietly allowed to rot.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        # The same image as docker-compose.yml. Testing against plain Postgres would
+        # pass locally and fail on anything touching the vector column.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: policy
+          POSTGRES_PASSWORD: policy
+          POSTGRES_DB: policy_intelligence
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U policy -d policy_intelligence"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg://policy:policy@localhost:5433/policy_intelligence
+      # No real key is needed: tests/conftest.py stubs the embedding call and the
+      # generation tests supply their own chat model. A key in CI would mean every push
+      # spends money and every fork's pull request fails.
+      OPENAI_API_KEY: test-key-not-used
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Unit tests (no database, no network)
+        run: pytest -q -m "not db"
+
+      - name: Migrate
+        run: alembic upgrade head
+
+      - name: Full suite, including tenant isolation
+        run: pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+
+  # `npm run smoke` is deliberately absent. It drives a real browser against a running
+  # API with a live OpenAI key and an ingested policy -- the two things it checks are a
+  # cited answer and an abstention, neither of which exists without them. It is a
+  # pre-deploy check, run by hand; see apps/web/README.md.

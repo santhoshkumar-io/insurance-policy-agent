@@ -97,6 +97,11 @@ class QuestionResult:
     latency_ms: int = 0
     # Only set when a generation pass ran.
     abstained: bool | None = None
+    # One entry per repeat when --repeats > 1. Generation is not deterministic even at
+    # temperature 0: a benchmark question was measured answering 5 times and abstaining 5
+    # out of 10, which is why a single run cannot tell an improvement from a coin landing
+    # differently (docs/experiments.md, finding 7).
+    abstained_runs: list[bool] = field(default_factory=list)
     tokens: int = 0
     notes: str = ""
 
@@ -117,14 +122,23 @@ class RunMetrics:
     # None when the run was retrieval-only.
     false_answer_rate: float | None = None
     false_abstention_rate: float | None = None
+    # Half the range across repeats: the "± 6" in "12% ± 6". None for a single run, which
+    # is the honest rendering -- one run carries no information about its own spread.
+    false_answer_spread: float | None = None
+    false_abstention_spread: float | None = None
+    repeats: int = 1
     tokens_per_100q: int | None = None
     # None when the set contains no conditional questions.
     conditional_coverage: float | None = None
     per_question: list[QuestionResult] = field(default_factory=list)
 
     def as_row(self) -> dict:
-        def pct(value: float | None) -> str:
-            return "—" if value is None else f"{value * 100:.0f}%"
+        def pct(value: float | None, spread: float | None = None) -> str:
+            if value is None:
+                return "—"
+            if spread is None:
+                return f"{value * 100:.0f}%"
+            return f"{value * 100:.0f}% ± {spread * 100:.0f}"
 
         return {
             "experiment": self.name,
@@ -132,8 +146,8 @@ class RunMetrics:
             "mrr": f"{self.mrr:.3f}",
             "ndcg@k": f"{self.ndcg_at_k:.3f}",
             "section": f"{self.section_accuracy:.3f}",
-            "false answer": pct(self.false_answer_rate),
-            "false abstain": pct(self.false_abstention_rate),
+            "false answer": pct(self.false_answer_rate, self.false_answer_spread),
+            "false abstain": pct(self.false_abstention_rate, self.false_abstention_spread),
             "cond. coverage": pct(self.conditional_coverage),
             "p50 ms": f"{self.p50_latency_ms:.0f}",
             "tokens/100q": "—" if self.tokens_per_100q is None else f"{self.tokens_per_100q:,}",
@@ -142,6 +156,46 @@ class RunMetrics:
 
 def _mean(values: list[float]) -> float:
     return statistics.fmean(values) if values else 0.0
+
+
+def _outcome(result: QuestionResult, pass_index: int) -> bool | None:
+    """This question's abstention outcome on one pass.
+
+    ``abstained_runs`` is empty for a single-pass run, where ``abstained`` is the whole
+    answer; it holds one entry per repeat otherwise.
+    """
+    if result.abstained_runs:
+        if pass_index < len(result.abstained_runs):
+            return result.abstained_runs[pass_index]
+        return None
+    return result.abstained if pass_index == 0 else None
+
+
+def _rate(
+    candidates: list[QuestionResult],
+    denominator: list[QuestionResult],
+    pass_index: int,
+    *,
+    abstained_is: bool,
+) -> float | None:
+    """How many of ``candidates`` went the wrong way on this pass, over ``denominator``."""
+    if not denominator:
+        return None
+    wrong = [r for r in candidates if _outcome(r, pass_index) is abstained_is]
+    return len(wrong) / len(denominator)
+
+
+def _half_range(rates: list[float | None]) -> float | None:
+    """Half the spread across passes: the "± 6" in "12% ± 6".
+
+    Half-range rather than a standard deviation because the sample is small -- three to
+    ten passes -- and "the rate landed anywhere in this band" is the claim the number can
+    actually support.
+    """
+    present = [r for r in rates if r is not None]
+    if len(present) < 2:
+        return None
+    return (max(present) - min(present)) / 2.0
 
 
 def aggregate(name: str, k: int, results: list[QuestionResult]) -> RunMetrics:
@@ -156,15 +210,38 @@ def aggregate(name: str, k: int, results: list[QuestionResult]) -> RunMetrics:
 
     generated = [r for r in results if r.abstained is not None]
     false_answer = false_abstention = tokens_per_100q = None
+    false_answer_spread = false_abstention_spread = None
+    repeats = max((len(r.abstained_runs) for r in generated), default=1) or 1
     if generated:
-        bad_answers = [r for r in generated if not r.answerable and r.abstained is False]
-        bad_abstentions = [
-            r for r in generated if r.answerable and not r.conditional and r.abstained is True
+        # With repeats, each rate is computed once per pass and then averaged, so the
+        # spread describes the variation in *the rate* -- which is the number that gets
+        # published and compared between phases. Averaging the per-question outcomes
+        # first would hide exactly the instability this exists to expose.
+        answer_rates = [
+            _rate(
+                [r for r in generated if not r.answerable],
+                unanswerable,
+                pass_index,
+                abstained_is=False,
+            )
+            for pass_index in range(repeats)
         ]
-        if unanswerable:
-            false_answer = len(bad_answers) / len(unanswerable)
-        if binary_answerable:
-            false_abstention = len(bad_abstentions) / len(binary_answerable)
+        abstain_rates = [
+            _rate(
+                [r for r in generated if r.answerable and not r.conditional],
+                binary_answerable,
+                pass_index,
+                abstained_is=True,
+            )
+            for pass_index in range(repeats)
+        ]
+        false_answer = _mean([r for r in answer_rates if r is not None]) if unanswerable else None
+        false_abstention = (
+            _mean([r for r in abstain_rates if r is not None]) if binary_answerable else None
+        )
+        if repeats > 1:
+            false_answer_spread = _half_range(answer_rates)
+            false_abstention_spread = _half_range(abstain_rates)
         total_tokens = sum(r.tokens for r in generated)
         tokens_per_100q = round(total_tokens / len(generated) * 100)
 
@@ -187,6 +264,9 @@ def aggregate(name: str, k: int, results: list[QuestionResult]) -> RunMetrics:
         p95_latency_ms=sorted(latencies)[max(0, int(len(latencies) * 0.95) - 1)],
         false_answer_rate=false_answer,
         false_abstention_rate=false_abstention,
+        false_answer_spread=false_answer_spread,
+        false_abstention_spread=false_abstention_spread,
+        repeats=repeats,
         tokens_per_100q=tokens_per_100q,
         conditional_coverage=conditional_coverage,
         per_question=results,

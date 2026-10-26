@@ -16,5 +16,19 @@ services:
       timeout: 5s
       retries: 20
 
+  api:
+    build: .
+    # The image runs migrations and seeds the demo policy before serving, so a cold
+    # `docker compose up` produces a working system rather than an empty one.
+    env_file: .env
+    environment:
+      # Inside the compose network the database is `db:5432`, not the host's 5433.
+      DATABASE_URL: postgresql+psycopg://policy:policy@db:5432/policy_intelligence
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

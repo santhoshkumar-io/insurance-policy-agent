@@ -20,9 +20,9 @@ dependencies = [
     "typer>=0.15.1",
     "rich>=13.9.4",
     "pyyaml>=6.0.2",
-    # Real BM25, for the experiment row that settles whether it beats ts_rank_cd here.
-    # Tiny and pure-Python; it indexes in memory per query, which is fine for a
-    # benchmark corpus and is why it is a comparison arm and not a shipping mode.
+    # Real BM25. It began as a comparison arm against ts_rank_cd and won by 0.188 MRR on
+    # the real corpus, so it is now half of the default retrieval mode -- tiny, pure
+    # Python, and indexed once per (tenant, policy scope) rather than per query.
     "rank-bm25>=0.2.2",
 ]
 

@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -113,7 +114,13 @@ class Document(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("policies.id", ondelete="CASCADE"), index=True
     )
     filename: Mapped[str] = mapped_column(String(512))
-    storage_path: Mapped[str] = mapped_column(String(1024))
+    # The PDF itself. Bytes in the row rather than a path on disk, because a deployed
+    # host's filesystem does not survive a redeploy and re-indexing needs the original
+    # file -- see rag/storage.py for what this costs and when to stop doing it.
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Kept for documents ingested before the move to in-row bytes, and for the CLI, which
+    # can still point at a file it does not need to copy.
+    storage_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # sha256 of the file bytes: rejects duplicate re-uploads within a tenant.
     checksum: Mapped[str] = mapped_column(String(64))
     byte_size: Mapped[int] = mapped_column(Integer, default=0)

@@ -16,6 +16,7 @@ get caught. The dashboard comes after retrieval settles.
 from __future__ import annotations
 
 import hashlib
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from sqlalchemy import func, select
 
 from db.models import Chunk, Document, DocumentStatus, Policy
 from db.session import get_or_create_dev_tenant, scoped, session_scope
+from rag import storage
 from rag.config import get_settings
 from rag.generation.answer import generate_answer
 from rag.ingestion.pipeline import ingest_document
@@ -35,6 +37,9 @@ from rag.retrieval.types import RetrievalMode
 
 app = typer.Typer(add_completion=False, help="Insurance Policy Intelligence AI")
 console = Console()
+
+# The product name is the demo policy's identity: see seed_demo on why the checksum is not.
+DEMO_PRODUCT = "Acme Health Guard"
 
 
 # The suites live side by side: the synthetic one is a deterministic fixture that runs
@@ -67,7 +72,6 @@ def ingest(
     version: str = typer.Option("", "--version", help="Policy version identifier"),
 ) -> None:
     """Ingest a policy PDF: parse, chunk, embed, store."""
-    settings = get_settings()
     data = path.read_bytes()
     if not data.startswith(b"%PDF-"):
         console.print(f"[red]{path.name} is not a PDF (missing %PDF- header)[/red]")
@@ -93,20 +97,18 @@ def ingest(
         session.add(policy)
         session.flush()
 
-        storage_dir = Path(settings.storage_dir) / str(tenant.id)
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        storage_path = storage_dir / f"{checksum}.pdf"
-        storage_path.write_bytes(data)
-
         document = Document(
             tenant_id=tenant.id,
             policy_id=policy.id,
             filename=path.name,
-            storage_path=str(storage_path),
+            # The file is already on this machine, so the path is recorded as a
+            # convenience -- but the bytes go in the row too, because re-indexing must
+            # not depend on a file the operator is free to move. See rag/storage.py.
+            storage_path=str(path.resolve()),
             checksum=checksum,
-            byte_size=len(data),
             status=DocumentStatus.PENDING,
         )
+        storage.store(document, data)
         session.add(document)
         session.flush()
         document_id, tenant_id = document.id, tenant.id
@@ -145,6 +147,67 @@ def ingest(
                 console.print(f"    - {section}")
         else:
             console.print("  sections    : [yellow]none detected (windowed fallback)[/yellow]")
+
+
+@app.command("seed-demo")
+def seed_demo() -> None:
+    """Ingest the synthetic demo policy, so a fresh deployment is never empty.
+
+    Synthetic on purpose. The real LIC wordings the benchmark uses are third-party
+    publications: measuring against them locally is one thing, serving them from a public
+    URL is another (see docs/sample-data.md). The generated Acme wording has the same
+    structural features the dashboard is there to show -- headings, numbered clauses, a
+    benefits table -- and belongs to this project.
+
+    Idempotent on the *product name*, not on the file checksum. The generator stamps a
+    fresh creation timestamp into every PDF it writes, so the bytes -- and therefore the
+    checksum -- differ on each run; keying on them seeded a second copy on every
+    container start, which is exactly what this docstring used to claim it prevented.
+    """
+    # Imported here rather than at module scope: it is a generator script, used by this
+    # one command and the test fixtures, and the CLI should not pay for it on every call.
+    from scripts.sample_policy import build_structured_policy
+
+    with tempfile.TemporaryDirectory() as workdir:
+        pdf = build_structured_policy(Path(workdir) / "acme-health-guard.pdf")
+        data = pdf.read_bytes()
+        checksum = hashlib.sha256(data).hexdigest()
+
+        with session_scope() as session:
+            tenant = get_or_create_dev_tenant(session)
+            existing = session.scalar(
+                scoped(
+                    select(Policy).where(Policy.product_name == DEMO_PRODUCT), Policy, tenant.id
+                )
+            )
+            if existing is not None:
+                console.print(f"[yellow]Demo policy already present as {existing.id}.[/yellow]")
+                return
+
+            policy = Policy(
+                tenant_id=tenant.id,
+                insurer="Acme Insurance",
+                product_name=DEMO_PRODUCT,
+                policy_version="demo",
+            )
+            session.add(policy)
+            session.flush()
+
+            document = Document(
+                tenant_id=tenant.id,
+                policy_id=policy.id,
+                filename="acme-health-guard.pdf",
+                checksum=checksum,
+                status=DocumentStatus.PENDING,
+            )
+            storage.store(document, data)
+            session.add(document)
+            session.flush()
+            document_id, tenant_id = document.id, tenant.id
+
+    with session_scope() as session:
+        count = ingest_document(session, document_id, tenant_id)
+    console.print(f"[green]Seeded[/green] the demo policy: {count} chunks")
 
 
 @app.command()
@@ -339,6 +402,9 @@ def eval(
     generate: bool = typer.Option(
         False, "--generate", help="Also call the model, for abstention and token metrics"
     ),
+    repeats: int = typer.Option(
+        1, "--repeats", help="Run generation N times per question and report the spread"
+    ),
 ) -> None:
     """Score one retrieval configuration against the frozen question set."""
     from rag.evaluation.dataset import load_eval_set
@@ -361,7 +427,13 @@ def eval(
         with session_scope() as session:
             tenant = get_or_create_dev_tenant(session)
             metrics = run_configuration(
-                session, tenant.id, config, k=k, eval_set=eval_set, generate=generate
+                session,
+                tenant.id,
+                config,
+                k=k,
+                eval_set=eval_set,
+                generate=generate,
+                repeats=repeats,
             )
 
     _print_runs([metrics], k)
@@ -389,6 +461,9 @@ def experiments(
     ),
     generate: bool = typer.Option(
         False, "--generate", help="Also measure abstention and token cost"
+    ),
+    repeats: int = typer.Option(
+        1, "--repeats", help="Run generation N times per question and report the spread"
     ),
 ) -> None:
     """Run the whole matrix and write docs/experiments.md."""
@@ -430,6 +505,7 @@ def experiments(
                     k=k,
                     eval_set=eval_set,
                     generate=generate,
+                    repeats=repeats,
                     vector_cache=vector_cache,
                 )
             runs.append(metrics)

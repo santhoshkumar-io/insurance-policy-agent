@@ -26,7 +26,7 @@ function AskScreen() {
   );
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<ChatOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; detail: string } | null>(null);
   const [pending, setPending] = useState(false);
 
   const ready = policies.filter((policy) =>
@@ -61,7 +61,16 @@ function AskScreen() {
         }),
       );
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : String(caught));
+      // A 429 is the demo's cost ceiling doing its job, not a failure. Saying "the
+      // request failed" would send the reader looking for a bug that is not there.
+      setError(
+        caught instanceof ApiError
+          ? {
+              title: caught.status === 429 ? "Slow down" : "The request failed",
+              detail: caught.message,
+            }
+          : { title: "The request failed", detail: String(caught) },
+      );
     } finally {
       setPending(false);
     }
@@ -153,9 +162,9 @@ function AskScreen() {
         </div>
 
         {error && (
-          <Alert variant="destructive">
-            <AlertTitle>The request failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+          <Alert variant={error.title === "Slow down" ? "default" : "destructive"}>
+            <AlertTitle>{error.title}</AlertTitle>
+            <AlertDescription>{error.detail}</AlertDescription>
           </Alert>
         )}
 

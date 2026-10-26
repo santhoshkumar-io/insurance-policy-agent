@@ -114,6 +114,7 @@ def run_question(
     policy_id: uuid.UUID | None,
     query_vector: list[float] | None = None,
     generate: bool = False,
+    repeats: int = 1,
 ) -> QuestionResult:
     started = time.time()
     chunks = search(
@@ -145,10 +146,21 @@ def run_question(
     if generate:
         from rag.generation.answer import generate_answer
 
-        answer = generate_answer(question.question, chunks)
-        result.abstained = not answer.answerable
-        result.tokens = int(answer.usage.get("total_tokens", 0) or 0)
-        result.latency_ms = latency + answer.latency_ms
+        # Retrieval ran once and is deterministic; only generation repeats. That keeps
+        # the cost of --repeats linear in the part that actually varies, and it makes the
+        # comparison honest: every pass is answering from exactly the same evidence.
+        total_tokens = 0
+        generation_latency = 0
+        for _ in range(max(1, repeats)):
+            answer = generate_answer(question.question, chunks)
+            result.abstained_runs.append(not answer.answerable)
+            total_tokens += int(answer.usage.get("total_tokens", 0) or 0)
+            generation_latency += answer.latency_ms
+
+        passes = len(result.abstained_runs)
+        result.abstained = result.abstained_runs[0]
+        result.tokens = round(total_tokens / passes)
+        result.latency_ms = latency + round(generation_latency / passes)
 
     return result
 
@@ -161,6 +173,7 @@ def run_configuration(
     k: int = 5,
     eval_set: EvalSet | None = None,
     generate: bool = False,
+    repeats: int = 1,
     vector_cache: dict[str, list[float]] | None = None,
 ) -> RunMetrics:
     eval_set = eval_set or load_eval_set()
@@ -187,6 +200,7 @@ def run_configuration(
             policy_ids.get(question.policy),
             query_vector=query_vector,
             generate=generate,
+            repeats=repeats,
         )
         if policy_ids.get(question.policy) is None:
             result.notes = f"policy '{question.policy}' not ingested"

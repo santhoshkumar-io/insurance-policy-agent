@@ -2,17 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.models import Chunk, Document, DocumentStatus, Policy
 from db.session import scoped, session_scope
+from rag import storage
 from rag.config import get_settings
 from rag.ingestion.pipeline import ingest_document
 from services.api.deps import current_tenant_id, get_db
+from services.api.limits import enforce_ip_rate_limit
 from services.api.schemas import DocumentOut, PolicyOut, UploadOut
 
 router = APIRouter(prefix="/policies", tags=["policies"])
@@ -46,13 +56,14 @@ def _run_ingestion(document_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 @router.post("/upload", response_model=UploadOut)
 async def upload_policy(
     background: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     product_name: str = Form(...),
     insurer: str = Form(""),
     policy_version: str = Form(""),
     session: Session = Depends(get_db),
 ) -> UploadOut:
-    settings = get_settings()
+    enforce_ip_rate_limit(request, get_settings().rate_limit_uploads_per_minute)
     tenant_id = current_tenant_id(session)
 
     data = await file.read()
@@ -79,20 +90,16 @@ async def upload_policy(
     session.add(policy)
     session.flush()
 
-    storage_dir = Path(settings.storage_dir) / str(tenant_id)
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    storage_path = storage_dir / f"{checksum}.pdf"
-    storage_path.write_bytes(data)
-
     document = Document(
         tenant_id=tenant_id,
         policy_id=policy.id,
         filename=file.filename or "upload.pdf",
-        storage_path=str(storage_path),
         checksum=checksum,
-        byte_size=len(data),
         status=DocumentStatus.PENDING,
     )
+    # The bytes go in the row, not on disk: a deployed host's filesystem does not survive
+    # a redeploy, and re-indexing needs the original PDF. See rag/storage.py.
+    storage.store(document, data)
     session.add(document)
     session.commit()
 

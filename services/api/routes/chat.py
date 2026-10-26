@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from db.models import Citation, Conversation, Message
+from rag.config import get_settings
 from rag.generation.answer import Answer, generate_answer
 from rag.retrieval.search import search
 from rag.retrieval.types import RetrievedChunk
 from services.api.deps import current_tenant_id, get_db
+from services.api.limits import enforce_daily_cap, enforce_ip_rate_limit
 from services.api.schemas import ChatIn, ChatOut, CitationOut, ClaimOut
 
 router = APIRouter(tags=["chat"])
@@ -76,7 +78,14 @@ def _persist(
 
 
 @router.post("/chat", response_model=ChatOut)
-def chat(payload: ChatIn, session: Session = Depends(get_db)) -> ChatOut:
+def chat(
+    payload: ChatIn, request: Request, session: Session = Depends(get_db)
+) -> ChatOut:
+    # The demo is open, so this endpoint is an unmetered path to a paid key unless it is
+    # capped. Both checks raise 429 with a message the dashboard shows the reader.
+    enforce_ip_rate_limit(request, get_settings().rate_limit_questions_per_minute)
+    enforce_daily_cap(session)
+
     tenant_id = current_tenant_id(session)
 
     retrieved = search(

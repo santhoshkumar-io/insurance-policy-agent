@@ -1,7 +1,6 @@
 """Single source of configuration. Model IDs are pinned here, not scattered in call sites."""
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +14,6 @@ class Settings(BaseSettings):
     openai_embedding_dim: int = 1536
 
     database_url: str = "postgresql+psycopg://policy:policy@localhost:5433/policy_intelligence"
-    storage_dir: Path = Path("./storage")
 
     max_upload_bytes: int = 50 * 1024 * 1024
     max_pages: int = 600
@@ -53,6 +51,13 @@ class Settings(BaseSettings):
     abstain_semantic_threshold: float = 0.25
 
     dev_tenant_slug: str = "dev"
+
+    # Ceilings for the open demo (services/api/limits.py). The per-IP window is held in
+    # process and so is per worker; the daily cap is counted from the messages table and
+    # so is not. Set either to 0 to disable it.
+    rate_limit_questions_per_minute: int = 10
+    rate_limit_uploads_per_minute: int = 3
+    daily_question_cap: int = 300
 
     # Browser origins allowed to call the API. A list rather than "*" even in development:
     # the dashboard runs on a known port, and a wildcard that ships to deployment because

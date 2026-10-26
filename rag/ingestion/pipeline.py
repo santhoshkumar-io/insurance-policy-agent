@@ -8,11 +8,11 @@ moving parts for a problem that does not exist at this volume; the ``status`` co
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from db.models import Chunk, Document, DocumentStatus
+from rag import storage
 from rag.chunking.chunker import chunk_document
 from rag.config import get_settings
 from rag.embeddings.openai_embeddings import embed_texts
@@ -39,7 +39,7 @@ def ingest_document(session: Session, document_id: uuid.UUID, tenant_id: uuid.UU
         document.error = None
         session.flush()
 
-        extracted = extract_document(Path(document.storage_path), max_pages=settings.max_pages)
+        extracted = extract_document(storage.load(document), max_pages=settings.max_pages)
         document.page_count = extracted.page_count
 
         if extracted.low_text_pages:

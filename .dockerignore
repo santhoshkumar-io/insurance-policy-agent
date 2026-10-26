@@ -1,0 +1,16 @@
+.git
+.venv
+apps/web/node_modules
+apps/web/.next
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+*.egg-info
+# Never ship the key or the third-party policy PDFs into an image.
+.env
+samples
+storage
+evals/results
+docs
+tests
