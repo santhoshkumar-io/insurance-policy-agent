@@ -19,12 +19,21 @@ Create a Neon project and enable the extension once:
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-Take the **pooled** connection string and convert the driver prefix — SQLAlchemy needs
-`postgresql+psycopg://`, Neon hands out `postgresql://`:
+Take the **pooled** connection string — the host containing `-pooler` — and use it as
+`DATABASE_URL` exactly as Neon gives it to you:
 
 ```
-postgresql+psycopg://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+postgresql://user:password@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
 ```
+
+No hand-editing. `rag/config.py` pins the driver to psycopg 3 itself, because which
+driver a bare `postgresql://` selects is a SQLAlchemy default that changed between 2.0
+and 2.1 — and a secret that has to be edited by hand before it works is its own small
+source of outages.
+
+Pooled rather than direct because the API holds a connection pool per worker and Neon's
+direct endpoint has a much lower connection ceiling. Migrations run over the same URL at
+container start.
 
 Migrations are **not** run by hand. The container runs `alembic upgrade head` on every
 boot, because the image is the only thing that knows which revision its code expects.

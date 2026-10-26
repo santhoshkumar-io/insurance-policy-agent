@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,6 +64,28 @@ class Settings(BaseSettings):
     # the dashboard runs on a known port, and a wildcard that ships to deployment because
     # nobody revisited it is the usual way this setting becomes a vulnerability.
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("database_url")
+    @classmethod
+    def pin_the_driver(cls, value: str) -> str:
+        """Accept a managed provider's connection string unmodified.
+
+        Neon, Supabase and every other managed Postgres hand out a URL beginning
+        ``postgresql://``, and the natural thing for an operator to do is paste it
+        straight into the environment. Which driver that selects is decided by
+        SQLAlchemy's default, and that default *changed*: 2.0 resolves a bare
+        ``postgresql://`` to psycopg2, 2.1 resolves it to psycopg 3. Only psycopg 3 is
+        installed here, so the same connection string works today and would fail with a
+        ModuleNotFoundError on a 2.0 pin -- a failure whose message says nothing about
+        the URL that caused it.
+
+        Naming the driver removes the dependency on that default without asking the
+        operator to hand-edit a secret, which is its own small source of outages.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     def require_openai_key(self) -> str:
         if not self.openai_api_key:
