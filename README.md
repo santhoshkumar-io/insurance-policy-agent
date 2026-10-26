@@ -31,20 +31,21 @@ decisions taken in response — is in [plan.md](plan.md).
 | Tenant isolation in the schema and every query | ✅ (auth stubbed) |
 | REST API + CLI | ✅ |
 | Keyword retrieval (`ts_rank_cd`) + RRF hybrid | ✅ built; beaten by BM25 on a real corpus |
-| Real BM25 arm (`rank_bm25`) | ✅ built; **best recall**, but not deployable as built |
-| Cross-encoder reranking | ✅ built, off by default; best MRR, no recall gain |
-| Section-path retrieval arm | ✅ built, **rejected on measurement** — see below |
+| Real BM25, cached per tenant + policy scope | ✅ **the default** — best recall, 4.9ms warm |
+| Cross-encoder reranking | ✅ built, off by default; best MRR, costs recall |
+| Section metadata as a ranking signal | ✅ built twice, **rejected twice on measurement** |
 | Evaluation harness: Recall@k, MRR, nDCG, abstention, conditional coverage, cost | ✅ |
 | Tri-state answerability (yes / no / conditional) | ✅ |
 | Two separate benchmark suites (real + synthetic regression) | ✅ |
-| 47-question benchmark on real LIC wordings | ✅ |
+| 48-question benchmark on real LIC wordings | ✅ |
 | Re-index without re-upload | ✅ |
 | Candidate question drafting for the benchmark | ✅ |
 | Structure-aware chunking of real IRDAI-filed wordings | ✅ |
-| BM25 inside Postgres (ParadeDB `pg_search`) | justified by measurement; phase 4 |
+| Next.js dashboard: upload, library, ask, citation panel | ✅ |
+| BM25 inside Postgres (ParadeDB `pg_search`) | ruled out — unavailable on managed Postgres |
 | OCR for scanned pages | not needed — both real documents extract cleanly |
-| Next.js dashboard | phase 3 |
-| Policy comparison | phase 4 |
+| Answerability judgement in generation | **the next target** — see the benchmark section |
+| Policy comparison | phase 5 |
 | Real auth, tracing | phase 5 |
 | Docker deploy, CI | phase 6 |
 
@@ -84,54 +85,87 @@ uvicorn services.api.main:app --reload    # docs at http://127.0.0.1:8000/docs
 
 ## What the benchmark says
 
-47 questions (41 answerable, 3 conditional, 6 unanswerable) hand-verified against two real
+48 questions (38 answerable, 2 conditional, 8 unanswerable) hand-verified against two real
 LIC policy wordings — *Digi Term* and *Jeevan Raksha*, 17 pages and 49 chunks each. Full
 table, method and caveats in [docs/experiments.md](docs/experiments.md).
 
 | Configuration | Recall@5 | MRR |
 |---|---|---|
-| vector | 0.949 | 0.911 |
-| keyword (`ts_rank_cd`) | 0.872 | 0.608 |
-| bm25 (`rank_bm25`) | 0.974 | 0.795 |
-| hybrid RRF(vector + `ts_rank_cd`) | 0.897 | 0.782 |
-| **hybrid RRF(vector + bm25)** | **1.000** | 0.898 |
-| hybrid RRF(vector + `ts_rank_cd` + section) | 0.923 | 0.772 |
-| hybrid RRF(vector + bm25 + section) | 0.897 | 0.750 |
-| **hybrid + cross-encoder** | 0.949 | **0.932** |
+| vector | 0.950 | 0.913 |
+| keyword (`ts_rank_cd`) | 0.850 | 0.593 |
+| bm25 (`rank_bm25`) | 0.975 | 0.781 |
+| hybrid RRF(vector + `ts_rank_cd`) | 0.875 | 0.766 |
+| **hybrid RRF(vector + bm25)** — the default | **1.000** | 0.884 |
+| hybrid RRF(vector + bm25) + section tie-break | 1.000 | 0.746 |
+| hybrid + cross-encoder | 0.950 | **0.921** |
 
-**Three results worth reading the detail for.**
+Rows that lost stay in the table. Two more losing configurations — the section arm in both
+hybrids — were measured, removed from the code, and are kept in
+[docs/experiments.md](docs/experiments.md) with the numbers that rejected them.
+
+**Four results worth reading the detail for.**
 
 **The previous phase's verdict was wrong, and the caveat that said so was the useful
 part.** Phase 2 concluded plain vector beat every hybrid — on an 8-chunk synthetic
 document, while stating that could not generalise. On a real corpus
 `hybrid RRF(vector + bm25)` retrieves the evidence for **every** answerable question
-(1.000) where vector alone does not (0.949). That conclusion is withdrawn.
+(1.000) where vector alone does not (0.950). That conclusion is withdrawn.
 
-**Real BM25 beats `ts_rank_cd` by 0.187 MRR** — against 0.032 on the synthetic corpus,
+**Real BM25 beats `ts_rank_cd` by 0.188 MRR** — against 0.032 on the synthetic corpus,
 which was reported as noise at the time. The mechanism is IDF, and these documents are
 dense with the rare tokens that rewards: `512N356V02`, `Section 45`, `Unexpired Risk
 Premium Value`. Running BM25 as a measured experiment instead of asserting `ts_rank_cd`
-was adequate is what made that visible — and it fires the reversal condition recorded in
-[docs/decisions.md](docs/decisions.md), so ParadeDB `pg_search` is now justified.
+was adequate is what made that visible, and it fired a reversal condition recorded in
+[docs/decisions.md](docs/decisions.md).
 
-**But the winning configuration cannot ship.** The in-memory BM25 arm re-indexes the whole
-corpus on every query — a benchmark tool, as its own docstring says. So the default stays
-`vector` until `pg_search` makes a deployable hybrid measurable. Flipping a setting on the
-strength of a number produced by code that cannot serve traffic would be the wrong lesson
-to take from a benchmark.
+**The winning configuration could not ship, so it was made shippable.** The BM25 arm
+re-indexed the whole scoped corpus on *every* query — a benchmark tool, as its own
+docstring said, which is why the default stayed `vector` for a phase despite the
+measurement. It now builds one index per `(tenant, policy scope)` and reuses it:
+**67.8ms cold, 4.9ms warm, a 13.7x speedup**, with invalidation by a fingerprint query
+rather than a hook, because ingestion runs in another task and possibly another process.
+ParadeDB `pg_search` would be the better long-term answer and is **not available on
+managed Postgres**, which is the deployment target — so it stays unbuilt, and the trigger
+for revisiting it is written down.
+
+**The default is now `hybrid_bm25`, chosen on recall rather than MRR.** The reranked rows
+have the best MRR (0.921) and lose 5 points of recall for 10x the latency. Recall decides
+because the model is handed every one of the `top_k` chunks: evidence that never arrives
+cannot be recovered by any later stage, while imperfect ordering inside that set is a soft
+cost. An incidental finding — the two reranked rows are the same row to three decimals on
+recall, MRR and section accuracy, so **the cross-encoder erases the difference between the
+lexical arms** it was fed.
+
+**Retrieval is finished; every remaining error is in generation.** The five questions
+scored as false abstentions all have **`recall = 1.0`** — three with the evidence at rank
+1. The text was retrieved, served to the model, and the model declined anyway. Asked
+whether a loan is available, it answered "the sources do not provide any information"
+while holding the sentence *"No loan will be available under this policy"*; asked whether
+the death benefit option can be changed, it said the same while holding *"The Death
+Benefit Option once chosen cannot be changed later"*. Both abstain **10 times out of 10**,
+so this is reproducible, not sampling noise. Abstention is a feature of this system, and a
+feature that fires when it should not is a defect with good manners — so the next target
+is the answerability judgement, not retrieval.
 
 ### Section-aware retrieval was my top recommendation, and it lost
 
 Phase 2 ended by naming this "the first thing to try in the next phase". Built, measured,
-rejected: adding the section arm to the best pair costs **10 points of recall and 15 of
-MRR**, and the synthetic corpus agrees.
+rejected twice. As a fourth RRF arm it cost the best pair **10 points of recall and 15 of
+MRR**, and the synthetic corpus agreed. The failure analysis pointed at a tie-breaker that
+reorders near-equal results and never introduces candidates, so that was built and
+measured too — and a tolerance sweep found it **monotonically harmful** (MRR 0.884 off,
+0.841 at 0.05, 0.746 at 0.15, recall flat at 1.000). Narrow enough to be safe is narrow
+enough to do nothing.
 
 Why it fails is the useful part. A section path identifies a *region*, not a *passage* —
 eight chunks share `PART – D: CONDITIONS RELATED TO SERVICING ASPECTS`, so a query
 matching that path returns all eight at high rank and each contributes its reciprocal to
 the fusion. RRF treats every arm as an equal voter and this signal is not of equal
-quality. The diagnosis still stands; section metadata belongs as a tie-breaker or filter,
-not a fourth vote. `rag/retrieval/section.py` stays behind a flag.
+quality. The tie-breaker fails for the same reason in a different shape: a path cannot
+distinguish "in the right section" from "is the right passage", and ranking needs the
+second. Recorded as a dead end for ranking after two attempts; the remaining variant — a
+hard filter when a query unambiguously names a section — is noted as untested, not
+promised. `rag/retrieval/section.py` stays behind a flag.
 
 ### The chunker that passed every test was broken on real documents
 
@@ -146,6 +180,34 @@ The worst defect was caught by a *benchmark question*, not a test: "What is the 
 this plan?" was unanswerable because the UIN sits in the running header of all 17 pages
 and furniture detection had deleted it from the corpus entirely. Furniture is now
 deduplicated rather than deleted — kept once on the title page, stripped thereafter.
+
+## The dashboard
+
+```bash
+uvicorn services.api.main:app --reload     # terminal 1
+cd apps/web && npm install && npm run dev  # terminal 2 -- http://localhost:3000
+```
+
+Three screens — upload, library, ask — and the citation panel is the point of all three.
+For every chunk the model was served it shows the **page and section path read from the
+database row**, never from the model's output, so a plausible invented page number has no
+path to the screen. It shows which arm found the chunk, the retrieved text itself, and
+**both scores side by side**: the ranking score, whose scale depends on the retrieval
+mode, next to the cosine, which does not and which is what the abstention threshold reads.
+Those being one unlabelled number was a real bug here, and the panel is where that
+distinction stops being a paragraph in a decision log.
+
+Chunks the model was shown but did not cite are labelled *retrieved, not cited*, because
+what the model declined to lean on is as informative as what it used. And an abstention
+renders **as an abstention, with its reason** — a blank answer box would undo the feature.
+
+`npm run smoke` drives all three screens in a real browser against a running API and
+checks what matters: that a citation card carries a page, both scores, and two *different*
+numbers; that an abstention renders its reason; and that the console is clean. It is not
+in CI — it needs a database, an ingested policy and an API key — but it found two defects
+the build was happy with.
+
+---
 
 ## How a question is answered
 
@@ -174,7 +236,7 @@ This guarantees *existence*. Whether the model cited the *right* real clause is 
 evaluation question, measured in week 5 — no validator can answer it.
 
 **2. The system abstains on three explicit triggers**, not on vibes: nothing retrieved;
-best retrieval score below `ABSTAIN_SCORE_THRESHOLD`; or the model reporting
+best **cosine** similarity below `ABSTAIN_SEMANTIC_THRESHOLD`; or the model reporting
 insufficient evidence. Both error directions get measured, because a system that
 abstains on everything scores perfectly on groundedness and is useless.
 
@@ -242,7 +304,7 @@ policy experiments --set acme-synthetic --k 1              # the regression fixt
 policy eval-draft <policy_id> --out candidates.yaml
 ```
 
-Two suites, deliberately separate. `lic-real` (47 questions, real LIC wordings) is the
+Two suites, deliberately separate. `lic-real` (48 questions, real LIC wordings) is the
 headline benchmark and reports to `docs/experiments.md`. `acme-synthetic` (23 questions,
 a generated 4-page document) is a deterministic regression fixture that runs **without the
 real PDFs**, which matters because those are gitignored. Merging them would let an easy
@@ -286,8 +348,8 @@ rag/
     types.py             RetrievedChunk: ranking score AND confidence score
     vector.py            exact tenant-scoped cosine search
     keyword.py           ts_rank_cd (named honestly -- this is not BM25)
-    bm25.py              real BM25, experiment arm only (re-indexes per query)
-    section.py           section-path arm -- built, measured, rejected
+    bm25.py              real BM25, cached per (tenant, policy scope), fingerprinted
+    section.py           section metadata -- built as arm and as tie-break, both rejected
     fusion.py            reciprocal rank fusion
     rerank.py            cross-encoder, behind the [rerank] extra
     search.py            the one entry point API, CLI and harness all share
@@ -295,7 +357,8 @@ rag/
   validation/            citation id validation
   evaluation/            dataset (tri-state), metrics, runner, report, drafting
   cli.py                 ingest / ask / policies / inspect / reindex / eval / experiments
-services/api/            FastAPI routes, schemas, dependencies
+services/api/            FastAPI routes, schemas, dependencies, CORS
+apps/web/                Next.js dashboard: upload, library, ask + citation panel
 db/                      models, session + scoping helper, Alembic migrations
 tests/                   chunking, citations, generation, injection, isolation, API
 evals/                   questions.yaml (synthetic) + questions-lic.yaml (headline)
@@ -315,9 +378,13 @@ docs/                    decisions, experiments, sample-data provenance
   pages; term wordings are overwhelmingly prose. The phase-1 claim that tables were "the
   #1 technical risk" was mis-ranked for this corpus — health policies are where that work
   will actually be tested.
-- **Retrieval serves vector-only** although hybrid measured better, because the hybrid
-  that won depends on an in-memory BM25 arm that re-indexes per query. `pg_search` first,
-  then re-measure, then change the default.
+- **The BM25 index lives in each worker's memory.** Cached per tenant and policy scope
+  and invalidated by a fingerprint query, so it is correct and fast at ~100 chunks — but
+  memory and cold start multiply by worker count, and this needs revisiting well before
+  ~10⁵ chunks. `pg_search` is the answer then, and it requires self-hosted Postgres.
+- **The system over-abstains.** Five benchmark questions whose evidence was retrieved at
+  rank 1 were declined anyway, reproducibly. Retrieval is at Recall@5 = 1.000; the
+  remaining errors are all in the answerability judgement.
 - **No true version-conflict test.** Two different products, not two versions of one.
   Attribution across near-duplicate wordings is tested; superseded-version behaviour is
   not.
@@ -326,9 +393,12 @@ docs/                    decisions, experiments, sample-data provenance
 - The abstention threshold is still the initial 0.25 rather than a value calibrated
   against the set. It is at least now applied to a stable scale — see the score-scale
   entry in `docs/decisions.md`.
-- No ANN index on embeddings. Correct and fast at 8 chunks; revisit at a few thousand.
-- Single stubbed tenant. The isolation mechanism is real and tested; the authentication
-  in front of it is not built.
+- No ANN index on embeddings. Correct and fast at ~100 chunks; revisit at a few thousand.
+- Single stubbed tenant. The isolation mechanism is real and tested — including in the
+  BM25 cache key, where a miss would serve one tenant's index to another — but the
+  authentication in front of it is not built, and the dashboard has no sign-in.
+- The dashboard has no automated test in CI. `npm run smoke` is a real browser check but
+  needs a live API, a database and a key, so nothing guards the UI on a pull request.
 - **This system is not a claims authority.** It describes what policy wording says.
   Every answer must be verified against the source wording by the agent before it
   reaches a customer.

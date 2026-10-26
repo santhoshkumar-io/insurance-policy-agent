@@ -26,6 +26,7 @@ def search(
     top_k: int | None = None,
     mode: RetrievalMode | str | None = None,
     rerank: bool | None = None,
+    section_tiebreak: bool | None = None,
     query_vector: list[float] | None = None,
 ) -> list[RetrievedChunk]:
     """Retrieve evidence for ``question``, scoped to the tenant and selected policies.
@@ -38,6 +39,9 @@ def search(
     mode = RetrievalMode(mode or settings.retrieval_mode)
     top_k = top_k or settings.retrieval_top_k
     rerank = settings.rerank_enabled if rerank is None else rerank
+    section_tiebreak = (
+        settings.section_tiebreak_enabled if section_tiebreak is None else section_tiebreak
+    )
     candidates = settings.retrieval_candidates
 
     # Each arm must contribute more than top_k for fusion or reranking to have anything
@@ -55,26 +59,12 @@ def search(
         )
 
     lexical_hits: list[RetrievedChunk] = []
-    if mode in {
-        RetrievalMode.KEYWORD,
-        RetrievalMode.HYBRID,
-        RetrievalMode.HYBRID_SECTION,
-    }:
+    if mode in {RetrievalMode.KEYWORD, RetrievalMode.HYBRID}:
         lexical_hits = keyword.retrieve(
             session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
         )
-    elif mode in {
-        RetrievalMode.BM25,
-        RetrievalMode.HYBRID_BM25,
-        RetrievalMode.HYBRID_BM25_SECTION,
-    }:
+    elif mode in {RetrievalMode.BM25, RetrievalMode.HYBRID_BM25}:
         lexical_hits = bm25.retrieve(
-            session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
-        )
-
-    section_hits: list[RetrievedChunk] = []
-    if mode in {RetrievalMode.HYBRID_SECTION, RetrievalMode.HYBRID_BM25_SECTION}:
-        section_hits = section.retrieve(
             session, tenant_id, question, policy_ids=policy_ids, top_k=fan_out
         )
 
@@ -83,12 +73,17 @@ def search(
     elif mode in {RetrievalMode.KEYWORD, RetrievalMode.BM25}:
         results = lexical_hits[: fan_out if rerank else top_k]
     else:
-        arms = [arm for arm in (vector_hits, lexical_hits, section_hits) if arm]
+        arms = [arm for arm in (vector_hits, lexical_hits) if arm]
         results = reciprocal_rank_fusion(
             arms,
             k=settings.rrf_k,
             top_k=fan_out if rerank else top_k,
         )
+
+    if section_tiebreak and results:
+        # Reorders near-equal results only; never adds a candidate. That restriction is
+        # the whole difference from the arm version, which lost by flooding fusion.
+        results = section.apply_tiebreak(question, results)
 
     if rerank and results:
         from rag.retrieval.rerank import rerank as apply_rerank

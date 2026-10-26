@@ -82,26 +82,38 @@ def test_section_arm_is_tenant_scoped(ingested, session):
     assert section.retrieve(session, other.id, "waiting period") == []
 
 
-def test_hybrid_section_mode_includes_section_arm_results(ingested, session):
+def test_tiebreak_composes_with_any_mode(ingested, session):
+    """It is a flag, not a mode. The arm version needed its own mode; this does not."""
     tenant, policy, _, _ = ingested
     question = "waiting period for pre-existing disease"
 
-    section_only = section.retrieve(
-        session, tenant.id, question, policy_ids=[policy.id]
-    )
-    fused = search(
-        session,
-        tenant.id,
-        question,
-        policy_ids=[policy.id],
-        mode=RetrievalMode.HYBRID_SECTION,
-        query_vector=fake_embed_one(question),
-        top_k=10,
-    )
-    assert {c.chunk_id for c in section_only} <= {c.chunk_id for c in fused}
+    for mode in (RetrievalMode.VECTOR, RetrievalMode.HYBRID_BM25):
+        plain = search(
+            session,
+            tenant.id,
+            question,
+            policy_ids=[policy.id],
+            mode=mode,
+            section_tiebreak=False,
+            query_vector=fake_embed_one(question),
+            top_k=8,
+        )
+        tiebroken = search(
+            session,
+            tenant.id,
+            question,
+            policy_ids=[policy.id],
+            mode=mode,
+            section_tiebreak=True,
+            query_vector=fake_embed_one(question),
+            top_k=8,
+        )
+        # Same candidate set, possibly different order. This is the contract the arm
+        # version broke by introducing candidates of its own.
+        assert {c.chunk_id for c in plain} == {c.chunk_id for c in tiebroken}
 
 
-def test_every_hybrid_section_result_carries_a_confidence_score(ingested, session):
+def test_every_result_still_carries_a_confidence_score_with_tiebreak(ingested, session):
     tenant, policy, _, _ = ingested
     question = "exclusions"
     results = search(
@@ -109,8 +121,10 @@ def test_every_hybrid_section_result_carries_a_confidence_score(ingested, sessio
         tenant.id,
         question,
         policy_ids=[policy.id],
-        mode=RetrievalMode.HYBRID_SECTION,
+        mode=RetrievalMode.HYBRID_BM25,
+        section_tiebreak=True,
         query_vector=fake_embed_one(question),
     )
     assert results
     assert all(r.semantic_score is not None for r in results)
+    assert [r.rank for r in results] == list(range(1, len(results) + 1))

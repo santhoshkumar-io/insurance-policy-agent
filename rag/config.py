@@ -21,10 +21,13 @@ class Settings(BaseSettings):
     max_pages: int = 600
     ocr_min_chars_per_page: int = 50
 
-    # Default set from the benchmark, not from preference: hybrid retrieval measured
-    # *worse* than vector alone on the current corpus (docs/experiments.md). Hybrid,
-    # BM25 and the reranker all stay built and are one setting away.
-    retrieval_mode: str = "vector"  # vector | keyword | bm25 | hybrid | hybrid_bm25
+    # Set from the benchmark. On the real LIC corpus hybrid RRF(vector + BM25) retrieves
+    # the evidence for *every* answerable question (Recall@5 = 1.000) where vector alone
+    # reaches 0.949, and the cached BM25 index made it deployable at ~5ms warm. Reranking
+    # has a better MRR (0.932) but costs 5 points of recall and 10x the latency, and
+    # missing evidence is unrecoverable while imperfect ordering inside the served set is
+    # not -- the model sees all top_k chunks either way. See docs/decisions.md.
+    retrieval_mode: str = "hybrid_bm25"  # vector | keyword | bm25 | hybrid | hybrid_bm25
     retrieval_top_k: int = 8
     retrieval_candidates: int = 40  # per arm, before fusion
     rrf_k: int = 60
@@ -33,6 +36,16 @@ class Settings(BaseSettings):
     rerank_enabled: bool = False
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    # How many scoped BM25 indexes to keep in memory. Each worker holds its own, so this
+    # multiplies by worker count -- see rag/retrieval/bm25.py on what that costs.
+    bm25_cache_size: int = 8
+
+    # Section metadata as a tie-breaker rather than a retrieval arm. The arm version was
+    # measured and lost; this is the retry. Off until it earns its place.
+    # The tolerance is relative, so one value works across cosine, RRF and logit scales.
+    section_tiebreak_enabled: bool = False
+    section_tiebreak_tolerance: float = 0.15
+
     # Compared against RetrievedChunk.confidence -- a cosine similarity -- never against
     # the active strategy's ranking score. The old name (abstain_score_threshold) is what
     # invited the bug: an RRF score of 0.016 fails a 0.25 threshold every time, so
@@ -40,6 +53,11 @@ class Settings(BaseSettings):
     abstain_semantic_threshold: float = 0.25
 
     dev_tenant_slug: str = "dev"
+
+    # Browser origins allowed to call the API. A list rather than "*" even in development:
+    # the dashboard runs on a known port, and a wildcard that ships to deployment because
+    # nobody revisited it is the usual way this setting becomes a vulnerability.
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     def require_openai_key(self) -> str:
         if not self.openai_api_key:

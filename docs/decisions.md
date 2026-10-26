@@ -336,18 +336,25 @@ have caught content that was silently absent.
 
 **Decision.** The phase-2 entry on the keyword arm said it would reverse "if BM25 wins
 decisively on a real corpus — the answer then is the ParadeDB `pg_search` extension".
-On the LIC corpus at k=5 over 41 answerable questions:
+On the LIC corpus at k=5 over 40 answerable questions:
 
 | Arm | Recall@5 | MRR |
 |---|---|---|
-| `ts_rank_cd` | 0.872 | 0.608 |
-| real BM25 (`rank_bm25`) | **0.974** | **0.795** |
-| hybrid RRF(vector + `ts_rank_cd`) | 0.897 | 0.782 |
-| hybrid RRF(vector + BM25) | **1.000** | 0.898 |
-| vector alone | 0.949 | 0.911 |
+| `ts_rank_cd` | 0.850 | 0.593 |
+| real BM25 (`rank_bm25`) | **0.975** | **0.781** |
+| hybrid RRF(vector + `ts_rank_cd`) | 0.875 | 0.766 |
+| hybrid RRF(vector + BM25) | **1.000** | 0.884 |
+| vector alone | 0.950 | 0.913 |
 
-An MRR gap of 0.187 between the two lexical arms is not noise, and on the synthetic
-corpus it was 0.032. **So `pg_search` is now justified** and goes on the phase-4 list.
+An MRR gap of 0.188 between the two lexical arms is not noise, and on the synthetic
+corpus it was 0.032. **So BM25 is justified as real infrastructure.**
+
+*Re-measured 2026-10-26 after three labels were corrected (see `docs/experiments.md`,
+finding 7). Every figure in this table moved by at most 0.025 and the gap is unchanged,
+so the decision stands on the corrected set; the original figures were 0.872/0.608,
+0.974/0.795, 0.897/0.782, 1.000/0.898 and 0.949/0.911. The `pg_search` conclusion this
+entry originally drew was superseded the same day — see the cached-index entry below:
+managed Postgres does not offer the extension.*
 
 **Why the gap is real.** BM25 weights rare terms by inverse document frequency;
 `ts_rank_cd` does not. These documents are full of rare, high-value tokens — `512N356V02`,
@@ -358,14 +365,18 @@ almost none, which is exactly the limitation phase 2 recorded.
 
 ## 2026-10-26 — Hybrid retrieval wins on a real corpus: the phase-2 verdict was corpus-bound
 
-**Decision.** `retrieval_mode` stays `vector` for now, but the phase-2 conclusion that
+**Decision.** *(Superseded later the same day — the default is now `hybrid_bm25`; see
+the last entry. The reasoning below is kept because it records why the switch waited for
+a deployable BM25 arm rather than following the measurement straight away.)*
+
+`retrieval_mode` stays `vector` for now, but the phase-2 conclusion that
 "plain vector beats every hybrid" is **withdrawn** as a general claim. It held only on an
 8-chunk synthetic document.
 
-`hybrid RRF(vector + BM25)` reaches **Recall@5 = 1.000** against vector's 0.949 — every
+`hybrid RRF(vector + BM25)` reaches **Recall@5 = 1.000** against vector's 0.950 — every
 answerable question's evidence retrieved, which vector alone does not manage. Vector
-retains a narrow MRR lead (0.911 vs 0.898), and `hybrid + cross-encoder` has the best MRR
-of all (0.932).
+retains a narrow MRR lead (0.913 vs 0.884), and `hybrid + cross-encoder` has the best MRR
+of all (0.921).
 
 **Why the default has not changed yet.** The configuration that wins on recall uses the
 in-memory BM25 arm, which re-indexes the whole corpus on every query. That is a benchmark
@@ -389,7 +400,10 @@ passages share nearly all their vocabulary, and a cross-encoder shown both still
 the definition. The section path is what distinguishes them, and it was unused at query
 time. I called it "the first thing to try in the next phase".
 
-**What the measurement said:**
+**What the measurement said** (measured before the label corrections of 2026-10-26;
+`HYBRID_SECTION` and `HYBRID_BM25_SECTION` have since been removed from the code, so these
+rows cannot be re-run — the tie-breaker sweep in the later entry *was* re-measured on the
+corrected labels and reaches the same verdict):
 
 | Configuration | Recall@5 | MRR |
 |---|---|---|
@@ -415,3 +429,204 @@ candidates when a query clearly names a section. That is worth trying; adding it
 fourth voter is not.
 
 **Reverses if.** Reimplemented as a tie-breaker and measured again.
+
+---
+
+## 2026-10-26 — BM25 moved to a cached in-process index, not `pg_search`
+
+**Decision.** `rag/retrieval/bm25.py` builds its index once per `(tenant_id, policy scope)`
+and reuses it, bounded by an LRU. ParadeDB `pg_search` stays unbuilt.
+
+**Why not `pg_search`.** It is the better long-term answer and it is **not available on
+managed PostgreSQL** — Neon and Supabase do not offer it. The deployment target is managed
+Postgres, so adopting `pg_search` would force self-hosting and close off the cheapest path
+to the deployed application the brief's success criterion requires. Keeping BM25 in-process
+keeps that option open, and because every strategy sits behind
+`rag.retrieval.search.search`, `pg_search` later arrives as another arm rather than a
+rewrite.
+
+**Measured on the current corpus** (107 chunks, 20,163 tokens):
+
+| | |
+|---|---|
+| index build | 10 ms, one-off per scope |
+| cold query (build + score + fetch) | 67.8 ms |
+| warm query p50 | **4.9 ms** |
+| speedup | 13.7x |
+
+That is what makes the winning configuration deployable instead of a benchmark curiosity.
+
+**Invalidation is a fingerprint query, not a hook.** Two indexed aggregates
+(`count`, `max(created_at)`, `max(ordinal)`) run per query and trigger a rebuild when the
+corpus moves. An `invalidate()` call from `rag/ingestion/pipeline.py` would be simpler and
+wrong: ingestion runs in a background task and, deployed, possibly in another process, so
+a hook would leave every other worker serving a stale index with no way to notice. A slow
+query is recoverable; silently answering from a stale corpus is not.
+
+**The tenant is part of the cache key**, not an afterthought. A cache keyed on the policy
+set alone would serve one tenant's index to another — the one failure in this design that
+would be a security bug rather than a performance one. `tests/test_bm25_cache.py` asserts
+it first.
+
+**What it costs, stated rather than glossed:** each worker holds its own index, so memory
+and cold-start multiply by worker count; the first query after an ingest pays the rebuild;
+and this is sound at ~100 chunks and needs revisiting well before ~10⁵. At that point the
+answer is `pg_search` on self-hosted Postgres, and the trigger is explicit.
+
+---
+
+## 2026-10-26 — Section metadata as a ranking signal: rejected twice, and now done
+
+**Decision.** `section_tiebreak_enabled` stays `False`. Section metadata will not be used
+as a ranking signal. `rag/retrieval/section.py` keeps its query helper and
+`apply_tiebreak`, both behind flags.
+
+**Why it was tried twice.** Phase 2's sharpest finding was that a term's *definition*
+outranked the *clause* that governs it, and `section_path` is what distinguishes them.
+Phase 3 built it as a fourth RRF arm and it lost — 10 points of recall off the best
+configuration — because a section path names a *region*, so the arm flooded fusion with
+every chunk in it. That diagnosis pointed at a tie-breaker: reorder near-equal results,
+never introduce candidates. This phase built exactly that.
+
+**It lost again, and a tolerance sweep shows there is no setting where it pays:**
+
+| Tolerance | Recall@5 | MRR |
+|---|---|---|
+| off | 1.000 | **0.884** |
+| 0.01 | 1.000 | 0.884 |
+| 0.02 | 1.000 | 0.884 |
+| 0.05 | 1.000 | 0.841 |
+| 0.15 | 1.000 | 0.746 |
+
+Monotonically harmful. Narrow enough to be safe means narrow enough to do nothing; wide
+enough to act means wide enough to hurt. This is not a mis-tuned parameter — I swept it
+specifically to rule that out before concluding.
+
+**The root cause is the same in both shapes.** Section paths are low-precision because
+they name regions: query words like "premium", "policy" and "benefit" appear in many paths,
+so matching one promotes broad-region chunks over the specific passage fusion had already
+ranked first. The signal cannot distinguish "this chunk is in the right section" from
+"this chunk is the right passage", and ranking needs the second.
+
+**Stopping here.** The remaining variant is a hard *filter* — restrict candidates when a
+query unambiguously names a section. That is a different mechanism and might work, but two
+attempts have now failed for one shared reason, and continuing would be persistence rather
+than evidence. Recorded as a dead end for ranking; the filter variant is noted as untested,
+not promised.
+
+The original failure it was meant to fix is, for the record, now largely moot:
+`hybrid RRF(vector + BM25)` retrieves the evidence for every answerable question, so the
+definition-above-clause ordering no longer costs a correct answer at k=5.
+
+---
+
+## 2026-10-26 — Default retrieval mode is now `hybrid_bm25`, chosen on recall over MRR
+
+**Decision.** `retrieval_mode = "hybrid_bm25"`. `rerank_enabled` and
+`section_tiebreak_enabled` both stay `False`.
+
+On the real corpus at k=5:
+
+| Configuration | Recall@5 | MRR | p50 |
+|---|---|---|---|
+| vector | 0.950 | 0.913 | 15ms |
+| **hybrid RRF(vector + BM25)** | **1.000** | 0.884 | 18ms |
+| hybrid RRF(vector + BM25) + section tie-break | 1.000 | 0.746 | 18ms |
+| hybrid RRF(vector + ts_rank_cd) + rerank | 0.950 | **0.921** | 181ms |
+| hybrid RRF(vector + BM25) + rerank | 0.950 | **0.921** | 182ms |
+
+**Why recall decides this and MRR does not.** The model is handed all `top_k` chunks. So
+Recall@k answers "is the evidence in front of the model at all" — and if it is not, a
+correct answer is impossible, with no downstream stage able to recover it. MRR answers
+"how high is it ranked", which shifts what the model anchors on but changes nothing about
+what it can see. A 0.029 MRR difference is a soft cost; 0.050 of recall is two questions
+whose evidence never arrives.
+
+**Reranking is rejected despite the best MRR.** It costs 5 points of recall — it reorders
+the fused candidates and demotes correct evidence out of the top 5 — for 10x the latency
+and a torch dependency in the image. Buying ranking quality with recall is the wrong
+trade for this system.
+
+**An incidental result worth recording:** the two reranked rows are *the same row to
+three decimals* on recall, MRR and section accuracy (0.950 / 0.921 / 0.900) and differ by
+0.001 on nDCG. With 40 candidates per arm both hybrids surface
+substantially the same set, and the cross-encoder then imposes its own order — so the
+reranker **erases the difference between the lexical arms**. Anyone choosing a reranker on
+the strength of its lexical arm is tuning something the reranker overwrites.
+
+**What made this switchable at all** was the cached BM25 index. The same configuration won
+on recall in the previous phase and could not ship, because the arm re-indexed per query.
+At ~5ms warm it now can.
+
+**Reverses if.** The corpus outgrows an in-process index, at which point `pg_search` on
+self-hosted Postgres replaces the arm and this is re-measured; or repeated-run generation
+metrics show the hybrid trading away abstention quality, which the current single-run
+numbers cannot rule out.
+
+---
+
+## 2026-10-26 — Retrieval work stops here; the next target is the answerability judgement
+
+**Decision.** No further retrieval experiments. The remaining error budget is in
+generation, and the next phase's work is the answerability judgement in
+`rag/generation/`.
+
+**The measurement that decides it.** At the default configuration every question scored as
+a false abstention has `recall = 1.0`, and three of the five had the evidence at **rank
+1**. Retrieval put the right text in front of the model and the model declined to use it.
+Three were verified by reading the wording rather than trusting the label:
+
+- `L023` — the document says "No loan will be available under this policy"; the system
+  said the sources provide no information about loans.
+- `L015` — "The Death Benefit Option once chosen cannot be changed later"; same response.
+- `L025` — "This clause shall not be applicable for a lapsed policy"; the system's
+  abstention reason **states the answer** and then abstains.
+
+`L023` and `L015` were each run 10 times and abstained 10/10, so this is a reproducible
+behaviour rather than sampling variance.
+
+**Two mechanisms, both worth naming.** A single decisive sentence at the end of a long
+formula-heavy chunk gets overlooked — `L023`'s answer is the last line of a surrender
+calculation. And the model treats "not elaborated" as "not stated", which is
+over-abstention wearing the costume of caution.
+
+**Why this is a defect and not conservatism.** Abstention is a feature here, and a feature
+that fires when it should not is still a failure: the agent asking the question is sent
+back to the PDF the system exists to replace.
+
+**Reverses if.** A corpus arrives where retrieval recall drops below 1.000 again, at which
+point retrieval re-enters the budget. The in-corpus trigger is already recorded: a product
+class with tables and sub-limits, which these two term wordings do not exercise.
+
+---
+
+## 2026-10-26 — The dashboard shows both scores, and abstentions render as abstentions
+
+**Decision.** `apps/web/` is a Next.js dashboard with three screens — upload, library,
+ask. Its purpose is to make the retrieval engineering legible, not to be a product
+surface, so two choices in it are not cosmetic:
+
+**Both scores, side by side, labelled.** Every citation card shows the ranking score and
+the cosine. They are different numbers on different scales under any hybrid mode — 0.0328
+against 0.6186 on a live query — and collapsing them into one unlabelled "score" is
+precisely the bug this codebase shipped and had to fix. A reader who clicks one citation
+sees the distinction without reading a decision log.
+
+**An abstention renders as an abstention, with its reason.** A blank answer box would undo
+the feature the system is built around. The evidence panel stays populated underneath it,
+so a reader can see *what was retrieved* and *why it was judged insufficient* — which is
+how finding 9 above was found at all.
+
+**Supporting choices.** Page and section come from the database row, never from model
+output. Chunks the model did not cite are labelled *retrieved, not cited* and clipped
+behind an expander, because eight unclipped policy chunks bury the provenance the panel
+exists to show. The answer renders as its claims with citation badges rather than as prose
+plus a duplicate claim list.
+
+**CORS is an origin list, not `*`.** The wildcard is the easy way to make a cross-origin
+dashboard work and it ships to deployment because nobody revisits it.
+`tests/test_cors.py` asserts the absence of the wildcard, not just the presence of the
+middleware.
+
+**Reverses if.** Real authentication lands, at which point the origin list and the
+credential policy both need revisiting together.

@@ -154,6 +154,9 @@ def ask(
     top_k: int = typer.Option(None, "--top-k"),
     mode: RetrievalMode = typer.Option(None, "--mode", help="Retrieval strategy"),
     rerank: bool = typer.Option(None, "--rerank/--no-rerank", help="Cross-encoder rerank"),
+    section_tiebreak: bool = typer.Option(
+        None, "--section-tiebreak/--no-section-tiebreak", help="Section-path tie-breaker"
+    ),
     show_sources: bool = typer.Option(False, "--sources", help="Print the retrieved text"),
 ) -> None:
     """Ask a question and print the answer with its validated citations."""
@@ -167,6 +170,7 @@ def ask(
             top_k=top_k,
             mode=mode,
             rerank=rerank,
+            section_tiebreak=section_tiebreak,
         )
         answer = generate_answer(question, chunks)
 
@@ -328,6 +332,9 @@ def eval(
     ),
     mode: RetrievalMode = typer.Option(None, "--mode", help="Retrieval strategy"),
     rerank: bool = typer.Option(False, "--rerank", help="Apply the cross-encoder"),
+    section_tiebreak: bool = typer.Option(
+        False, "--section-tiebreak", help="Apply the section-path tie-breaker"
+    ),
     k: int = typer.Option(5, "--k", help="Cut-off for Recall@k and nDCG@k"),
     generate: bool = typer.Option(
         False, "--generate", help="Also call the model, for abstention and token metrics"
@@ -339,9 +346,14 @@ def eval(
 
     settings = get_settings()
     config = Configuration(
-        name=str(mode or settings.retrieval_mode) + (" + rerank" if rerank else ""),
+        name=(
+            str(mode or settings.retrieval_mode)
+            + (" + rerank" if rerank else "")
+            + (" + section tie-break" if section_tiebreak else "")
+        ),
         mode=RetrievalMode(mode or settings.retrieval_mode),
         rerank=rerank,
+        section_tiebreak=section_tiebreak,
     )
     eval_set = load_eval_set(_resolve_set(question_set))
 
@@ -392,9 +404,15 @@ def experiments(
 
     matrix = default_matrix()
     if rerank:
-        matrix.append(
-            Configuration("hybrid + cross-encoder", Mode.HYBRID, rerank=True)
-        )
+        # Rerank on top of *both* hybrids: the ts_rank_cd pair for continuity with the
+        # earlier runs, and the BM25 pair because that is the configuration leading on
+        # recall and therefore the one whose ranking is worth improving.
+        matrix += [
+            Configuration("hybrid RRF(vector + ts_rank_cd) + rerank", Mode.HYBRID, rerank=True),
+            Configuration(
+                "hybrid RRF(vector + bm25) + rerank", Mode.HYBRID_BM25, rerank=True
+            ),
+        ]
 
     eval_set = load_eval_set(_resolve_set(question_set))
     # One embedding per question, shared across every configuration in the matrix.

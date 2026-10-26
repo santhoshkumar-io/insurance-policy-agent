@@ -49,6 +49,7 @@ class Configuration:
     name: str
     mode: RetrievalMode
     rerank: bool = False
+    section_tiebreak: bool = False
 
     @property
     def slug(self) -> str:
@@ -67,11 +68,15 @@ def default_matrix() -> list[Configuration]:
         Configuration("bm25 (rank_bm25)", RetrievalMode.BM25),
         Configuration("hybrid RRF(vector + ts_rank_cd)", RetrievalMode.HYBRID),
         Configuration("hybrid RRF(vector + bm25)", RetrievalMode.HYBRID_BM25),
+        # The section-metadata retry. It lost as a fourth RRF arm; these rows judge it as
+        # a tie-breaker on exactly the same terms.
         Configuration(
-            "hybrid RRF(vector + ts_rank_cd + section)", RetrievalMode.HYBRID_SECTION
+            "vector + section tie-break", RetrievalMode.VECTOR, section_tiebreak=True
         ),
         Configuration(
-            "hybrid RRF(vector + bm25 + section)", RetrievalMode.HYBRID_BM25_SECTION
+            "hybrid RRF(vector + bm25) + section tie-break",
+            RetrievalMode.HYBRID_BM25,
+            section_tiebreak=True,
         ),
     ]
 
@@ -119,6 +124,7 @@ def run_question(
         top_k=max(k, get_settings().retrieval_top_k),
         mode=config.mode,
         rerank=config.rerank,
+        section_tiebreak=config.section_tiebreak,
         query_vector=query_vector,
     )
     latency = int((time.time() - started) * 1000)
@@ -199,7 +205,11 @@ def save_run(metrics: RunMetrics, config: Configuration, set_name: str = "") -> 
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{config.slug}-k{metrics.k}.json"
     payload = asdict(metrics)
-    payload["config"] = {"mode": str(config.mode), "rerank": config.rerank}
+    payload["config"] = {
+        "mode": str(config.mode),
+        "rerank": config.rerank,
+        "section_tiebreak": config.section_tiebreak,
+    }
     payload["set_name"] = set_name
     path.write_text(json.dumps(payload, indent=2, default=str))
     return path

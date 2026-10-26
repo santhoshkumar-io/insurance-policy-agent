@@ -403,14 +403,29 @@ questions:
   - id: L040
     question: "What should my family do to claim after my death?"
     policy: lic-digi-term
-    answerable: conditional
-    expected_pages: [12, 13]
+    answerable: true
+    expected_pages: [12]
     expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 4. Normal requirements for a claim:"
-    gold_answer: null
+    gold_answer: >
+      Claim forms, the original policy document, an NEFT mandate, proof of title, proof of
+      death and any records of medical treatment before death. If the age was never
+      admitted, proof of age as well. For unnatural or accidental death the Corporation
+      may additionally call for the FIR, Panchnama and post-mortem report.
     notes: >
-      Conditional on cause of death: the standard document list always applies, and
-      unnatural or accidental death additionally requires FIR, Panchnama and post-mortem
-      report. Page 13 carries the grievance route if the claim is repudiated.
+      LABEL CORRECTED TWICE, and both corrections are instructive.
+
+      It originally demanded pages 12 **and** 13, page 13 being the grievance route if a
+      claim is repudiated, and failed conditional coverage in all eight configurations.
+      The label was wrong, not the retrieval: an agent asking which documents to submit
+      is not asking about repudiation appeals. A metric reported without reading the
+      per-question output would have hidden that.
+
+      Dropping page 13 then made it conditional with a single page, which the loader
+      rejects -- correctly. Its answer *is* conditional on cause of death, but both
+      conditions sit on the same page, and conditional coverage is page-based, so the
+      metric cannot see the distinction. That is a real limitation of the metric rather
+      than of this question, so the question is now plainly answerable and the limitation
+      is recorded instead of being hidden behind a label that fitted the schema.
 
   # ------------------------------------------------------- not in either document
   - id: L041
@@ -437,16 +452,29 @@ questions:
       exclusions list will invent an answer.
 
   - id: L043
-    question: "What rate of GST applies to the premium?"
+    question: "What does the policy say about taxes on the premium?"
     policy: lic-digi-term
-    answerable: false
-    expected_pages: []
-    expected_section: null
-    gold_answer: null
+    answerable: true
+    expected_pages: [12]
+    expected_section: "PART – F: OTHER TERMS AND CONDITIONS > 3. Tax :"
+    gold_answer: >
+      Statutory taxes apply as per the tax laws and the rate applicable from time to time.
+      The policy states no rate. Taxes are collected separately, over and above the
+      premium, and the tax paid is not counted towards any benefit calculation.
     notes: >
-      The tax clause says statutory taxes apply "as per the tax laws and the rate of tax
-      as applicable from time to time" and states no rate. Quoting a rate would be
-      invention; the clause exists but does not answer the question.
+      RELABELLED, and the reason is worth keeping. This was originally
+      "What rate of GST applies to the premium?" marked unanswerable, because the clause
+      states no rate. The system answered it, and I recorded that as a false answer.
+
+      Checking what it actually said: it quoted the clause and did **not** invent a rate.
+      That is correct behaviour, and the label was penalising it. The document genuinely
+      answers "what does this policy say about tax" while genuinely not answering "what
+      rate" -- and a binary flag cannot express "topic present, value absent" any more
+      than it could express "depends on facts not supplied" (see L038-L040).
+
+      So the question was rewritten to ask what the document can answer. The harder
+      variant now lives at L048, which keeps the original trap without mislabelling a
+      reasonable response as a failure.
 
   - id: L044
     question: "What is the postal address of the insurance ombudsman for my city?"
@@ -493,3 +521,17 @@ questions:
       No settlement timeline is stated. The ombudsman section refers to "delay in
       settlement of claims, beyond the time specified in the regulations" without
       specifying it, which is a near-miss a model may read as an answer.
+
+  - id: L048
+    question: "What rate of GST applies to the premium?"
+    policy: lic-digi-term
+    answerable: false
+    expected_pages: []
+    expected_section: null
+    gold_answer: null
+    notes: >
+      The hard version of L043, kept deliberately. The tax clause is on-topic and states
+      no rate, so a correct response must say the document does not specify one rather
+      than quoting 18% from general knowledge. Scored as unanswerable because no rate is
+      retrievable; expect this one to be contested, and read the per-question output
+      before trusting the number.

@@ -1,19 +1,19 @@
 {
   "name": "keyword (ts_rank_cd)",
   "k": 5,
-  "questions": 47,
-  "answerable": 39,
+  "questions": 48,
+  "answerable": 40,
   "unanswerable": 8,
-  "recall_at_k": 0.8717948717948718,
-  "mrr": 0.6076923076923076,
-  "ndcg_at_k": 0.6566145931506278,
-  "section_accuracy": 0.6410256410256411,
-  "p50_latency_ms": 1770.0,
-  "p95_latency_ms": 3705.0,
+  "recall_at_k": 0.85,
+  "mrr": 0.5925,
+  "ndcg_at_k": 0.640199228321862,
+  "section_accuracy": 0.625,
+  "p50_latency_ms": 1592.0,
+  "p95_latency_ms": 3509.0,
   "false_answer_rate": 0.0,
-  "false_abstention_rate": 0.25,
-  "tokens_per_100q": 462815,
-  "conditional_coverage": 0.6666666666666666,
+  "false_abstention_rate": 0.2631578947368421,
+  "tokens_per_100q": 463340,
+  "conditional_coverage": 0.5,
   "per_question": [
     {
       "question_id": "L001",
@@ -25,7 +25,7 @@
       "ndcg": 0.6240505200038379,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3266,
+      "latency_ms": 3071,
       "abstained": false,
       "tokens": 5138,
       "notes": ""
@@ -40,7 +40,7 @@
       "ndcg": 0.8503449055347546,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3448,
+      "latency_ms": 3509,
       "abstained": false,
       "tokens": 5211,
       "notes": ""
@@ -55,9 +55,9 @@
       "ndcg": 0.6240505200038379,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 4797,
+      "latency_ms": 3400,
       "abstained": false,
-      "tokens": 5317,
+      "tokens": 5275,
       "notes": ""
     },
     {
@@ -70,7 +70,7 @@
       "ndcg": 0.8503449055347546,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2013,
+      "latency_ms": 2425,
       "abstained": false,
       "tokens": 5043,
       "notes": ""
@@ -85,9 +85,9 @@
       "ndcg": 0.6509209298071326,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1750,
+      "latency_ms": 1720,
       "abstained": false,
-      "tokens": 4439,
+      "tokens": 4437,
       "notes": ""
     },
     {
@@ -100,7 +100,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3370,
+      "latency_ms": 3846,
       "abstained": false,
       "tokens": 4954,
       "notes": ""
@@ -115,9 +115,9 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2550,
+      "latency_ms": 2484,
       "abstained": false,
-      "tokens": 4846,
+      "tokens": 4845,
       "notes": ""
     },
     {
@@ -130,7 +130,7 @@
       "ndcg": 0.5,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1128,
+      "latency_ms": 1428,
       "abstained": true,
       "tokens": 4834,
       "notes": ""
@@ -145,9 +145,9 @@
       "ndcg": 0.5706417189553201,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 2647,
+      "latency_ms": 2196,
       "abstained": false,
-      "tokens": 4706,
+      "tokens": 4704,
       "notes": ""
     },
     {
@@ -160,9 +160,9 @@
       "ndcg": 0.6509209298071326,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2348,
+      "latency_ms": 2228,
       "abstained": false,
-      "tokens": 4836,
+      "tokens": 4838,
       "notes": ""
     },
     {
@@ -175,7 +175,7 @@
       "ndcg": 0.5437713091520254,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1808,
+      "latency_ms": 1695,
       "abstained": false,
       "tokens": 4638,
       "notes": ""
@@ -190,9 +190,9 @@
       "ndcg": 0.5012658353418871,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1849,
-      "abstained": false,
-      "tokens": 5050,
+      "latency_ms": 1209,
+      "abstained": true,
+      "tokens": 4988,
       "notes": ""
     },
     {
@@ -205,7 +205,7 @@
       "ndcg": 0.8772153153380493,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3002,
+      "latency_ms": 3112,
       "abstained": false,
       "tokens": 4585,
       "notes": ""
@@ -220,7 +220,7 @@
       "ndcg": 0.38685280723454163,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1079,
+      "latency_ms": 1124,
       "abstained": true,
       "tokens": 4689,
       "notes": ""
@@ -235,7 +235,7 @@
       "ndcg": 0.6309297535714575,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1636,
+      "latency_ms": 1603,
       "abstained": true,
       "tokens": 4373,
       "notes": ""
@@ -250,7 +250,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1207,
+      "latency_ms": 1241,
       "abstained": true,
       "tokens": 4459,
       "notes": ""
@@ -265,9 +265,9 @@
       "ndcg": 0.8503449055347546,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3044,
+      "latency_ms": 1689,
       "abstained": false,
-      "tokens": 5232,
+      "tokens": 5128,
       "notes": ""
     },
     {
@@ -280,9 +280,9 @@
       "ndcg": 0.7122630665145961,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2527,
+      "latency_ms": 2084,
       "abstained": false,
-      "tokens": 4774,
+      "tokens": 4765,
       "notes": ""
     },
     {
@@ -295,9 +295,9 @@
       "ndcg": 0.9060254355346823,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2210,
+      "latency_ms": 2635,
       "abstained": false,
-      "tokens": 3760,
+      "tokens": 3825,
       "notes": ""
     },
     {
@@ -310,7 +310,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 5220,
+      "latency_ms": 5040,
       "abstained": false,
       "tokens": 5485,
       "notes": ""
@@ -325,7 +325,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1770,
+      "latency_ms": 1575,
       "abstained": false,
       "tokens": 4677,
       "notes": ""
@@ -340,9 +340,9 @@
       "ndcg": 0.8529278650606567,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1663,
+      "latency_ms": 1581,
       "abstained": false,
-      "tokens": 4658,
+      "tokens": 4661,
       "notes": ""
     },
     {
@@ -355,7 +355,7 @@
       "ndcg": 0.43067655807339306,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1436,
+      "latency_ms": 1019,
       "abstained": true,
       "tokens": 4690,
       "notes": ""
@@ -370,7 +370,7 @@
       "ndcg": 0.5,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1491,
+      "latency_ms": 1365,
       "abstained": true,
       "tokens": 4864,
       "notes": ""
@@ -385,9 +385,9 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 2526,
+      "latency_ms": 1377,
       "abstained": true,
-      "tokens": 4708,
+      "tokens": 4712,
       "notes": ""
     },
     {
@@ -400,7 +400,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1848,
+      "latency_ms": 1998,
       "abstained": false,
       "tokens": 4586,
       "notes": ""
@@ -415,7 +415,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1142,
+      "latency_ms": 1195,
       "abstained": true,
       "tokens": 4627,
       "notes": ""
@@ -430,7 +430,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 1273,
+      "latency_ms": 1540,
       "abstained": false,
       "tokens": 4309,
       "notes": ""
@@ -445,7 +445,7 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2001,
+      "latency_ms": 1656,
       "abstained": false,
       "tokens": 4828,
       "notes": ""
@@ -460,7 +460,7 @@
       "ndcg": 0.6309297535714575,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1712,
+      "latency_ms": 1388,
       "abstained": false,
       "tokens": 3869,
       "notes": ""
@@ -475,7 +475,7 @@
       "ndcg": 0.6934264036172708,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 2250,
+      "latency_ms": 1912,
       "abstained": false,
       "tokens": 4453,
       "notes": ""
@@ -490,7 +490,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1753,
+      "latency_ms": 1545,
       "abstained": false,
       "tokens": 4592,
       "notes": ""
@@ -505,9 +505,9 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1304,
+      "latency_ms": 1543,
       "abstained": false,
-      "tokens": 4404,
+      "tokens": 4394,
       "notes": ""
     },
     {
@@ -520,7 +520,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 952,
+      "latency_ms": 1307,
       "abstained": true,
       "tokens": 4529,
       "notes": ""
@@ -535,9 +535,9 @@
       "ndcg": 1.0,
       "section": true,
       "retrieved": 6,
-      "latency_ms": 1776,
+      "latency_ms": 1828,
       "abstained": false,
-      "tokens": 3357,
+      "tokens": 3355,
       "notes": ""
     },
     {
@@ -550,9 +550,9 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1213,
+      "latency_ms": 1140,
       "abstained": true,
-      "tokens": 4555,
+      "tokens": 4556,
       "notes": ""
     },
     {
@@ -565,7 +565,7 @@
       "ndcg": 0.5,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1570,
+      "latency_ms": 1459,
       "abstained": false,
       "tokens": 4089,
       "notes": ""
@@ -580,9 +580,9 @@
       "ndcg": 0.5,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 3351,
+      "latency_ms": 3311,
       "abstained": false,
-      "tokens": 5243,
+      "tokens": 5229,
       "notes": ""
     },
     {
@@ -595,22 +595,22 @@
       "ndcg": 0.9197207891481876,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3705,
+      "latency_ms": 3279,
       "abstained": false,
-      "tokens": 5188,
+      "tokens": 5151,
       "notes": ""
     },
     {
       "question_id": "L040",
       "answerable": true,
-      "conditional": true,
+      "conditional": false,
       "conditions_covered": true,
       "recall": 1.0,
       "rr": 1.0,
       "ndcg": 0.8503449055347546,
       "section": true,
       "retrieved": 8,
-      "latency_ms": 3801,
+      "latency_ms": 3601,
       "abstained": false,
       "tokens": 4307,
       "notes": ""
@@ -625,7 +625,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1228,
+      "latency_ms": 1383,
       "abstained": true,
       "tokens": 4485,
       "notes": ""
@@ -640,14 +640,14 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 994,
+      "latency_ms": 1336,
       "abstained": true,
       "tokens": 4058,
       "notes": ""
     },
     {
       "question_id": "L043",
-      "answerable": false,
+      "answerable": true,
       "conditional": false,
       "conditions_covered": false,
       "recall": 0.0,
@@ -655,9 +655,9 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1105,
-      "abstained": true,
-      "tokens": 4717,
+      "latency_ms": 1802,
+      "abstained": false,
+      "tokens": 5091,
       "notes": ""
     },
     {
@@ -670,9 +670,9 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1592,
+      "latency_ms": 1088,
       "abstained": true,
-      "tokens": 4233,
+      "tokens": 4232,
       "notes": ""
     },
     {
@@ -685,7 +685,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1418,
+      "latency_ms": 1109,
       "abstained": true,
       "tokens": 4533,
       "notes": ""
@@ -700,7 +700,7 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1276,
+      "latency_ms": 1051,
       "abstained": true,
       "tokens": 4541,
       "notes": ""
@@ -715,15 +715,31 @@
       "ndcg": 0.0,
       "section": false,
       "retrieved": 8,
-      "latency_ms": 1058,
+      "latency_ms": 1065,
       "abstained": true,
       "tokens": 4054,
+      "notes": ""
+    },
+    {
+      "question_id": "L048",
+      "answerable": false,
+      "conditional": false,
+      "conditions_covered": false,
+      "recall": 0.0,
+      "rr": 0.0,
+      "ndcg": 0.0,
+      "section": false,
+      "retrieved": 8,
+      "latency_ms": 1036,
+      "abstained": true,
+      "tokens": 4717,
       "notes": ""
     }
   ],
   "config": {
     "mode": "keyword",
-    "rerank": false
+    "rerank": false,
+    "section_tiebreak": false
   },
   "set_name": "lic-real"
 }
