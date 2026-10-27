@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, listPolicies, type PolicyOut } from "@/lib/api";
 
-const BUSY: ReadonlySet<string> = new Set(["pending", "processing"]);
+// Every status that means "still working", so the poll loop keeps running until the
+// document actually settles. Ingestion goes pending -> parsing -> embedding -> ready,
+// and missing either middle state ends the polling while the work is still in flight.
+const BUSY: ReadonlySet<string> = new Set(["pending", "parsing", "embedding"]);
 
 export function isBusy(policies: PolicyOut[]): boolean {
   return policies.some((policy) => policy.documents.some((d) => BUSY.has(d.status)));

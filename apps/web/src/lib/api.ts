@@ -17,7 +17,16 @@ const BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").r
   "",
 );
 
-export type DocumentStatus = "pending" | "processing" | "ready" | "failed";
+// These are the values db/models.py DocumentStatus emits, and nothing else. Inventing a
+// plausible-looking name here ("processing") silently broke the upload screen: the poll
+// loop watched for a status the backend never sends, so it stopped the moment ingestion
+// moved on from "pending". tests/test_status_contract.py now fails if the two drift.
+export type DocumentStatus =
+  | "pending"
+  | "parsing"
+  | "embedding"
+  | "ready"
+  | "failed";
 
 export interface DocumentOut {
   id: string;

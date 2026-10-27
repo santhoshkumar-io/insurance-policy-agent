@@ -3,7 +3,8 @@ import type { DocumentStatus } from "@/lib/api";
 
 const VARIANT: Record<DocumentStatus, "default" | "secondary" | "outline" | "destructive"> = {
   ready: "default",
-  processing: "secondary",
+  parsing: "secondary",
+  embedding: "secondary",
   pending: "outline",
   failed: "destructive",
 };
