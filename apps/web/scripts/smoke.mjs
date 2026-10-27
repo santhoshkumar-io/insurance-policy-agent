@@ -17,7 +17,7 @@
 
 import { chromium } from "playwright-core";
 
-const WEB = process.env.SMOKE_WEB_URL ?? "http://localhost:3000";
+const WEB = (process.env.SMOKE_WEB_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 const SHOTS = process.env.SMOKE_SHOT_DIR ?? null;
 const ANSWERABLE = "What is the grace period for paying premiums?";
 const UNANSWERABLE = "What is the premium for a 35 year old non-smoker?";

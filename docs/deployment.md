@@ -82,6 +82,11 @@ A Vercel project with root directory `apps/web` and one variable:
 NEXT_PUBLIC_API_BASE_URL=https://<your-api>.onrender.com
 ```
 
+A trailing slash here is harmless now — the client strips it — but it was not always:
+`https://host/` plus `/policies` gives `https://host//policies`, which FastAPI does not
+route, so the dashboard showed "Cannot load the library — Not Found" while the API was
+perfectly healthy.
+
 It is `NEXT_PUBLIC_`, so it is compiled into the browser bundle and visible to anyone who
 looks. That is correct — it is a URL. No secret belongs in `apps/web`; the OpenAI key
 lives only in the API's environment.

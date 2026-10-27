@@ -8,7 +8,14 @@
  * side, because the whole point of the citation panel is that those two numbers differ.
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+// Trailing slashes are stripped because paths are appended directly below. A base URL
+// ending in "/" produces "https://host//policies", which FastAPI does not route -- so
+// every request returns a 404 whose body says "Not Found" and whose cause is invisible
+// from the UI. A hosting dashboard's URL field is exactly where that slash comes from.
+const BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+  /\/+$/,
+  "",
+);
 
 export type DocumentStatus = "pending" | "processing" | "ready" | "failed";
 
